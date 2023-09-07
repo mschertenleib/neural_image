@@ -3,62 +3,81 @@
 namespace
 {
 
-[[nodiscard]] inline auto relu(const auto &expr)
+template <int Layer_size, int Previous_layer_size>
+void layer_init(Layer<Layer_size, Previous_layer_size> &layer,
+                int layer_size,
+                int previous_layer_size)
 {
-    return expr.array().max(0).matrix();
+    layer.weights.setRandom(layer_size, previous_layer_size);
+    layer.biases.setRandom(layer_size);
+    layer.activations.setZero(layer_size);
+}
+
+template <int layer_size, int previous_layer_size>
+inline void
+hidden_layer_predict(Layer<layer_size, previous_layer_size> &layer,
+                     const Eigen::Vector<float, previous_layer_size> &input)
+{
+    layer.activations =
+        (layer.weights * input + layer.biases).array().max(0).matrix();
+}
+
+template <int layer_size, int previous_layer_size>
+inline void
+output_layer_predict(Layer<layer_size, previous_layer_size> &layer,
+                     const Eigen::Vector<float, previous_layer_size> &input)
+{
+    layer.activations =
+        (layer.weights * input + layer.biases).array().tanh().matrix();
 }
 
 } // namespace
 
-Network create_network(const std::vector<int> &hidden_layers_sizes)
+void network_init(Network &network, const std::vector<int> &hidden_layers_sizes)
 {
     assert(!hidden_layers_sizes.empty());
 
     const auto num_hidden_layers = hidden_layers_sizes.size();
-
-    Network network {};
-
     if (num_hidden_layers > 1)
     {
-        network.weights_hidden_layers.resize(num_hidden_layers - 1);
-        network.biases_hidden_layers.resize(num_hidden_layers - 1);
+        network.additional_hidden_layers.resize(num_hidden_layers - 1);
     }
 
-    network.weights_first_layer.setRandom(hidden_layers_sizes.front(),
-                                          Eigen::NoChange);
-    network.biases_first_layer.setRandom(hidden_layers_sizes.front());
+    layer_init(network.first_hidden_layer, hidden_layers_sizes.front(), 2);
 
-    for (std::size_t i {}; i < num_hidden_layers - 1; ++i)
+    for (std::size_t i {0}; i < num_hidden_layers - 1; ++i)
     {
-        network.weights_hidden_layers[i].setRandom(hidden_layers_sizes[i + 1],
-                                                   hidden_layers_sizes[i]);
-        network.biases_hidden_layers[i].setRandom(hidden_layers_sizes[i + 1]);
+        layer_init(network.additional_hidden_layers[i],
+                   hidden_layers_sizes[i + 1],
+                   hidden_layers_sizes[i]);
     }
 
-    network.weights_last_layer.setRandom(Eigen::NoChange,
-                                         hidden_layers_sizes.back());
-    network.bias_last_layer.setRandom();
-
-    return network;
+    layer_init(network.output_layer, 3, hidden_layers_sizes.back());
 }
 
-float predict(const Network &network, float x, float y)
+Eigen::Vector3f network_predict(Network &network, float x, float y)
 {
-    const Eigen::Vector2f input(x, y);
-    auto a =
-        relu(network.weights_first_layer * input + network.biases_first_layer)
-            .eval();
-    for (std::size_t i {}; i < network.weights_hidden_layers.size(); ++i)
+    if (network.additional_hidden_layers.empty())
     {
-        a = relu(network.weights_hidden_layers[i] * a +
-                 network.biases_hidden_layers[i]);
+        hidden_layer_predict(network.first_hidden_layer, Eigen::Vector2f(x, y));
+        output_layer_predict(network.output_layer,
+                             network.first_hidden_layer.activations);
     }
-    // FIXME: the sum() call is just to get a scalar back, there is probably a
-    // better way to do this
-    const float output {
-        (network.weights_last_layer * a + network.bias_last_layer)
-            .array()
-            .tanh()
-            .sum()};
-    return output;
+    else
+    {
+        hidden_layer_predict(network.first_hidden_layer, Eigen::Vector2f(x, y));
+        hidden_layer_predict(network.additional_hidden_layers.front(),
+                             network.first_hidden_layer.activations);
+        for (std::size_t i {1}; i < network.additional_hidden_layers.size();
+             ++i)
+        {
+            hidden_layer_predict(
+                network.additional_hidden_layers[i],
+                network.additional_hidden_layers[i - 1].activations);
+        }
+        output_layer_predict(
+            network.output_layer,
+            network.additional_hidden_layers.back().activations);
+    }
+    return network.output_layer.activations;
 }

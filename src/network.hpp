@@ -1,23 +1,30 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 
+#define EIGEN_NO_AUTOMATIC_RESIZING
 #include <Eigen/Dense>
 
 #include <vector>
 
-struct Network
+template <int layer_size, int previous_layer_size>
+struct Layer
 {
-    Eigen::MatrixX2f weights_first_layer;
-    Eigen::VectorXf biases_first_layer;
-    std::vector<Eigen::MatrixXf> weights_hidden_layers;
-    std::vector<Eigen::VectorXf> biases_hidden_layers;
-    Eigen::RowVectorXf weights_last_layer;
-    Eigen::Vector<float, 1> bias_last_layer;
+    Eigen::Matrix<float, layer_size, previous_layer_size> weights;
+    Eigen::Vector<float, layer_size> biases;
+    Eigen::Vector<float, layer_size> activations;
 };
 
-[[nodiscard]] Network
-create_network(const std::vector<int> &hidden_layers_sizes);
+struct Network
+{
+    Layer<Eigen::Dynamic, 2> first_hidden_layer;
+    std::vector<Layer<Eigen::Dynamic, Eigen::Dynamic>> additional_hidden_layers;
+    Layer<3, Eigen::Dynamic> output_layer;
+};
 
-[[nodiscard]] float predict(const Network &network, float x, float y);
+void network_init(Network &network,
+                  const std::vector<int> &hidden_layers_sizes);
+
+[[nodiscard]] Eigen::Vector3f
+network_predict(Network &network, float x, float y);
 
 #endif // NETWORK_HPP
