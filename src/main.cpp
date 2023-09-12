@@ -35,26 +35,39 @@ private:
 template <typename F>
 Scope_guard(F &&) -> Scope_guard<F>;
 
+#define CONCATENATE_IMPL(a, b) a##b
+#define CONCATENATE(a, b)      CONCATENATE_IMPL(a, b)
+#define DEFER(f)               const Scope_guard CONCATENATE(scope_guard_, __LINE__)(f)
+
+inline void sdl_check(int result)
+{
+    if (result != 0)
+    {
+        throw std::runtime_error(SDL_GetError());
+    }
+}
+
+inline void sdl_check(const auto *pointer)
+{
+    if (pointer == nullptr)
+    {
+        throw std::runtime_error(SDL_GetError());
+    }
+}
+
 } // namespace
 
-int main(int argc, char *argv[])
+int main()
 {
-    std::cout << "Args: ";
-    for (int i {}; i < argc; ++i)
-    {
-        std::cout << argv[i] << ' ';
-    }
-    std::cout << '\n';
-
     Network network {};
     network_init(network, {10, 10});
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0)
-    {
-        std::cerr << SDL_GetError() << '\n';
-        return EXIT_FAILURE;
-    }
-    const Scope_guard sdl_guard([] { SDL_Quit(); });
+    // Once the network is initialized, Eigen shouldn't allocate any extra
+    // memory
+    Eigen::internal::set_is_malloc_allowed(false);
+
+    sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
+    DEFER([] { SDL_Quit(); });
 
     const auto window = SDL_CreateWindow("Neural Image",
                                          SDL_WINDOWPOS_UNDEFINED,
@@ -62,22 +75,13 @@ int main(int argc, char *argv[])
                                          1280,
                                          720,
                                          {});
-    if (window == nullptr)
-    {
-        std::cerr << SDL_GetError() << '\n';
-        return EXIT_FAILURE;
-    }
-    const Scope_guard window_guard([window] { SDL_DestroyWindow(window); });
+    sdl_check(window);
+    DEFER([window] { SDL_DestroyWindow(window); });
 
     const auto renderer = SDL_CreateRenderer(
         window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    if (renderer == nullptr)
-    {
-        std::cerr << SDL_GetError() << '\n';
-        return EXIT_FAILURE;
-    }
-    const Scope_guard renderer_guard([renderer]
-                                     { SDL_DestroyRenderer(renderer); });
+    sdl_check(renderer);
+    DEFER([renderer] { SDL_DestroyRenderer(renderer); });
 
     const int texture_width {128};
     const int texture_height {72};
@@ -86,12 +90,8 @@ int main(int argc, char *argv[])
                                            SDL_TEXTUREACCESS_STREAMING,
                                            texture_width,
                                            texture_height);
-    if (texture == nullptr)
-    {
-        std::cerr << SDL_GetError() << '\n';
-        return EXIT_FAILURE;
-    }
-    const Scope_guard texture_guard([texture] { SDL_DestroyTexture(texture); });
+    sdl_check(texture);
+    DEFER([texture] { SDL_DestroyTexture(texture); });
 
     bool quit {false};
     while (!quit)
@@ -107,13 +107,8 @@ int main(int argc, char *argv[])
 
         Uint8 *pixels;
         int pitch;
-        if (SDL_LockTexture(
-                texture, nullptr, reinterpret_cast<void **>(&pixels), &pitch) !=
-            0)
-        {
-            std::cerr << SDL_GetError() << '\n';
-            return EXIT_FAILURE;
-        }
+        sdl_check(SDL_LockTexture(
+            texture, nullptr, reinterpret_cast<void **>(&pixels), &pitch));
 
         for (int i {0}; i < texture_height; ++i)
         {
@@ -128,7 +123,7 @@ int main(int argc, char *argv[])
                                    static_cast<float>(texture_height - 1) *
                                    2.0f -
                                1.0f;
-                const auto output_to_u8 = [](float output)
+                constexpr auto output_to_u8 = [](float output)
                 { return static_cast<Uint8>((output + 1.0f) * 0.5f * 255.0f); };
                 const auto prediction = network_predict(network, x, y);
                 pixels[pixel_index * 4 + 0] = output_to_u8(prediction[0]);
@@ -139,25 +134,9 @@ int main(int argc, char *argv[])
         }
 
         SDL_UnlockTexture(texture);
-
-        if (SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE) != 0)
-        {
-            std::cerr << SDL_GetError() << '\n';
-            return EXIT_FAILURE;
-        }
-
-        if (SDL_RenderClear(renderer) != 0)
-        {
-            std::cerr << SDL_GetError() << '\n';
-            return EXIT_FAILURE;
-        }
-
-        if (SDL_RenderCopy(renderer, texture, nullptr, nullptr) != 0)
-        {
-            std::cerr << SDL_GetError() << '\n';
-            return EXIT_FAILURE;
-        }
-
+        sdl_check(SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE));
+        sdl_check(SDL_RenderClear(renderer));
+        sdl_check(SDL_RenderCopy(renderer, texture, nullptr, nullptr));
         SDL_RenderPresent(renderer);
     }
 

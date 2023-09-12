@@ -2,16 +2,17 @@
 #define NETWORK_HPP
 
 #define EIGEN_NO_AUTOMATIC_RESIZING
+#define EIGEN_RUNTIME_NO_MALLOC
 #include <Eigen/Dense>
 
 #include <vector>
 
-template <int layer_size, int previous_layer_size>
+template <int size, int previous_layer_size>
 struct Layer
 {
-    Eigen::Matrix<float, layer_size, previous_layer_size> weights;
-    Eigen::Vector<float, layer_size> biases;
-    Eigen::Vector<float, layer_size> activations;
+    Eigen::Matrix<float, size, previous_layer_size> weights;
+    Eigen::Vector<float, size> biases;
+    Eigen::Vector<float, size> activations;
 };
 
 struct Network

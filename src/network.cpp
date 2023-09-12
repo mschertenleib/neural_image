@@ -3,32 +3,34 @@
 namespace
 {
 
-template <int Layer_size, int Previous_layer_size>
-void layer_init(Layer<Layer_size, Previous_layer_size> &layer,
-                int layer_size,
-                int previous_layer_size)
+template <int size, int previous_layer_size>
+void layer_init(Layer<size, previous_layer_size> &layer,
+                int runtime_size,
+                int runtime_previous_layer_size)
 {
-    layer.weights.setRandom(layer_size, previous_layer_size);
-    layer.biases.setRandom(layer_size);
-    layer.activations.setZero(layer_size);
+    layer.weights.setRandom(runtime_size, runtime_previous_layer_size);
+    layer.biases.setRandom(runtime_size);
+    layer.activations.setZero(runtime_size);
 }
 
-template <int layer_size, int previous_layer_size>
+template <int size, int previous_layer_size>
 inline void
-hidden_layer_predict(Layer<layer_size, previous_layer_size> &layer,
+hidden_layer_predict(Layer<size, previous_layer_size> &layer,
                      const Eigen::Vector<float, previous_layer_size> &input)
 {
-    layer.activations =
-        (layer.weights * input + layer.biases).array().max(0).matrix();
+    layer.activations = layer.biases;
+    layer.activations.noalias() += layer.weights * input;
+    layer.activations = layer.activations.array().max(0).matrix();
 }
 
-template <int layer_size, int previous_layer_size>
+template <int size, int previous_layer_size>
 inline void
-output_layer_predict(Layer<layer_size, previous_layer_size> &layer,
+output_layer_predict(Layer<size, previous_layer_size> &layer,
                      const Eigen::Vector<float, previous_layer_size> &input)
 {
-    layer.activations =
-        (layer.weights * input + layer.biases).array().tanh().matrix();
+    layer.activations = layer.biases;
+    layer.activations.noalias() += layer.weights * input;
+    layer.activations = layer.activations.array().tanh().matrix();
 }
 
 } // namespace
@@ -57,15 +59,15 @@ void network_init(Network &network, const std::vector<int> &hidden_layers_sizes)
 
 Eigen::Vector3f network_predict(Network &network, float x, float y)
 {
+    hidden_layer_predict(network.first_hidden_layer, Eigen::Vector2f(x, y));
+
     if (network.additional_hidden_layers.empty())
     {
-        hidden_layer_predict(network.first_hidden_layer, Eigen::Vector2f(x, y));
         output_layer_predict(network.output_layer,
                              network.first_hidden_layer.activations);
     }
     else
     {
-        hidden_layer_predict(network.first_hidden_layer, Eigen::Vector2f(x, y));
         hidden_layer_predict(network.additional_hidden_layers.front(),
                              network.first_hidden_layer.activations);
         for (std::size_t i {1}; i < network.additional_hidden_layers.size();
@@ -79,5 +81,6 @@ Eigen::Vector3f network_predict(Network &network, float x, float y)
             network.output_layer,
             network.additional_hidden_layers.back().activations);
     }
+
     return network.output_layer.activations;
 }
