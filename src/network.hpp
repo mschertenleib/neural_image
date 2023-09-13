@@ -13,6 +13,7 @@ struct Layer
     Eigen::Matrix<float, size, previous_layer_size> weights;
     Eigen::Vector<float, size> biases;
     Eigen::Vector<float, size> activations;
+    Eigen::Vector<float, size> deltas;
 };
 
 struct Network
@@ -25,7 +26,11 @@ struct Network
 void network_init(Network &network,
                   const std::vector<int> &hidden_layers_sizes);
 
-[[nodiscard]] Eigen::Vector3f
-network_predict(Network &network, float x, float y);
+void network_predict(Network &network, const Eigen::Vector2f &input);
+
+void stochastic_gradient_descent(Network &network,
+                                 const Eigen::Vector2f &input,
+                                 const Eigen::Vector3f &output,
+                                 float learning_rate);
 
 #endif // NETWORK_HPP

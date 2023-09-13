@@ -55,17 +55,8 @@ inline void sdl_check(const auto *pointer)
     }
 }
 
-} // namespace
-
-int main()
+void application_main(Network &network)
 {
-    Network network {};
-    network_init(network, {10, 10});
-
-    // Once the network is initialized, Eigen shouldn't allocate any extra
-    // memory
-    Eigen::internal::set_is_malloc_allowed(false);
-
     sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
     DEFER([] { SDL_Quit(); });
 
@@ -83,8 +74,8 @@ int main()
     sdl_check(renderer);
     DEFER([renderer] { SDL_DestroyRenderer(renderer); });
 
-    const int texture_width {128};
-    const int texture_height {72};
+    const int texture_width {21};
+    const int texture_height {21};
     const auto texture = SDL_CreateTexture(renderer,
                                            SDL_PIXELFORMAT_ABGR8888,
                                            SDL_TEXTUREACCESS_STREAMING,
@@ -125,7 +116,8 @@ int main()
                                1.0f;
                 constexpr auto output_to_u8 = [](float output)
                 { return static_cast<Uint8>((output + 1.0f) * 0.5f * 255.0f); };
-                const auto prediction = network_predict(network, x, y);
+                network_predict(network, {x, y});
+                const auto prediction = network.output_layer.activations;
                 pixels[pixel_index * 4 + 0] = output_to_u8(prediction[0]);
                 pixels[pixel_index * 4 + 1] = output_to_u8(prediction[1]);
                 pixels[pixel_index * 4 + 2] = output_to_u8(prediction[2]);
@@ -138,7 +130,60 @@ int main()
         sdl_check(SDL_RenderClear(renderer));
         sdl_check(SDL_RenderCopy(renderer, texture, nullptr, nullptr));
         SDL_RenderPresent(renderer);
-    }
 
-    return EXIT_SUCCESS;
+        constexpr int image[7][7] {{0, 0, 0, 0, 0, 0, 0},
+                                   {0, 0, 1, 1, 1, 1, 0},
+                                   {0, 0, 0, 1, 0, 0, 0},
+                                   {0, 0, 0, 1, 1, 0, 0},
+                                   {0, 0, 1, 0, 0, 0, 0},
+                                   {0, 0, 1, 0, 0, 1, 0},
+                                   {0, 1, 0, 0, 0, 0, 0}};
+
+        for (int i {0}; i < 7; ++i)
+        {
+            for (int j {0}; j < 7; ++j)
+            {
+                const auto x =
+                    static_cast<float>(j) / static_cast<float>(7 - 1) * 2.0f -
+                    1.0f;
+                const auto y =
+                    static_cast<float>(i) / static_cast<float>(7 - 1) * 2.0f -
+                    1.0f;
+                const float learning_rate {0.01f};
+                stochastic_gradient_descent(network,
+                                            Eigen::Vector2f(x, y),
+                                            image[i][j]
+                                                ? Eigen::Vector3f(1, 1, 1)
+                                                : Eigen::Vector3f(-1, -1, -1),
+                                            learning_rate);
+            }
+        }
+    }
+}
+
+} // namespace
+
+int main()
+{
+    try
+    {
+        Network network {};
+        network_init(network, {20, 20, 20, 20});
+
+        Eigen::internal::set_is_malloc_allowed(false);
+
+        application_main(network);
+
+        return EXIT_SUCCESS;
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << '\n';
+        return EXIT_FAILURE;
+    }
+    catch (...)
+    {
+        std::cerr << "Unknown exception thrown\n";
+        return EXIT_FAILURE;
+    }
 }
