@@ -18,6 +18,11 @@ cmake --build build --target neural_image
 - [SDL](https://github.com/libsdl-org/SDL)
 - [stb_image](https://github.com/nothings/stb)
 
+## Inspiration & References
+
+- https://www.youtube.com/watch?v=TkwXa7Cvfr8
+- https://www.youtube.com/watch?v=eqIMsdYPaNs
+
 ## License
 
 This software is released under [MIT License](LICENSE).

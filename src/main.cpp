@@ -1,14 +1,26 @@
 #include "network.hpp"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <utility>
+#include <vector>
 
 namespace
 {
+
+struct Image
+{
+    std::size_t width;
+    std::size_t height;
+    std::vector<std::uint8_t> pixel_data;
+};
 
 template <typename F>
 class Scope_guard
@@ -39,6 +51,49 @@ Scope_guard(F &&) -> Scope_guard<F>;
 #define CONCATENATE(a, b)      CONCATENATE_IMPL(a, b)
 #define DEFER(f)               const Scope_guard CONCATENATE(scope_guard_, __LINE__)(f)
 
+[[maybe_unused]] [[nodiscard]] inline float loss(const Network &network,
+                                                 const Eigen::Vector3f &output)
+{
+    return 0.5f *
+           (output - network.output_layer.activations).array().square().sum();
+}
+
+[[nodiscard]] constexpr float u8_to_float(std::uint8_t u)
+{
+    return static_cast<float>(u) / 255.0f;
+}
+
+[[nodiscard]] constexpr std::uint8_t float_to_u8(float f)
+{
+    return static_cast<std::uint8_t>(f * 255.0f);
+}
+
+[[nodiscard]] Image load_image(const char *file_name)
+{
+    int width;
+    int height;
+    int channels_in_file;
+    constexpr int desired_channels {3};
+    auto *image_data = stbi_load(
+        file_name, &width, &height, &channels_in_file, desired_channels);
+    if (image_data == nullptr)
+    {
+        throw std::runtime_error(stbi_failure_reason());
+    }
+    DEFER([image_data] { stbi_image_free(image_data); });
+
+    Image image {.width = static_cast<std::size_t>(width),
+                 .height = static_cast<std::size_t>(height),
+                 .pixel_data = {}};
+
+    image.pixel_data.assign(
+        image_data,
+        image_data +
+            static_cast<std::size_t>(width * height * desired_channels));
+
+    return image;
+}
+
 inline void sdl_check(int result)
 {
     if (result != 0)
@@ -55,7 +110,7 @@ inline void sdl_check(const auto *pointer)
     }
 }
 
-void application_main(Network &network)
+void application_main(Network &network, Eigen::VectorXf &input)
 {
     sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
     DEFER([] { SDL_Quit(); });
@@ -74,8 +129,8 @@ void application_main(Network &network)
     sdl_check(renderer);
     DEFER([renderer] { SDL_DestroyRenderer(renderer); });
 
-    const int texture_width {21};
-    const int texture_height {21};
+    const int texture_width {130};
+    const int texture_height {70};
     const auto texture = SDL_CreateTexture(renderer,
                                            SDL_PIXELFORMAT_ABGR8888,
                                            SDL_TEXTUREACCESS_STREAMING,
@@ -114,13 +169,16 @@ void application_main(Network &network)
                                    static_cast<float>(texture_height - 1) *
                                    2.0f -
                                1.0f;
-                constexpr auto output_to_u8 = [](float output)
-                { return static_cast<Uint8>((output + 1.0f) * 0.5f * 255.0f); };
-                network_predict(network, {x, y});
-                const auto prediction = network.output_layer.activations;
-                pixels[pixel_index * 4 + 0] = output_to_u8(prediction[0]);
-                pixels[pixel_index * 4 + 1] = output_to_u8(prediction[1]);
-                pixels[pixel_index * 4 + 2] = output_to_u8(prediction[2]);
+                input.setZero();
+                input << x, y;
+                predict(network, input);
+                const auto &prediction = network.output_layer.activations;
+                pixels[pixel_index * 4 + 0] =
+                    float_to_u8((prediction[0] + 1.0f) * 0.5f);
+                pixels[pixel_index * 4 + 1] =
+                    float_to_u8((prediction[1] + 1.0f) * 0.5f);
+                pixels[pixel_index * 4 + 2] =
+                    float_to_u8((prediction[2] + 1.0f) * 0.5f);
                 pixels[pixel_index * 4 + 3] = SDL_ALPHA_OPAQUE;
             }
         }
@@ -131,31 +189,35 @@ void application_main(Network &network)
         sdl_check(SDL_RenderCopy(renderer, texture, nullptr, nullptr));
         SDL_RenderPresent(renderer);
 
-        constexpr int image[7][7] {{0, 0, 0, 0, 0, 0, 0},
-                                   {0, 0, 1, 1, 1, 1, 0},
-                                   {0, 0, 0, 1, 0, 0, 0},
-                                   {0, 0, 0, 1, 1, 0, 0},
-                                   {0, 0, 1, 0, 0, 0, 0},
-                                   {0, 0, 1, 0, 0, 1, 0},
-                                   {0, 1, 0, 0, 0, 0, 0}};
+        constexpr int image[7][13] {{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+                                    {0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0},
+                                    {0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0},
+                                    {0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0},
+                                    {0, 1, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0},
+                                    {0, 1, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 0},
+                                    {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
+        constexpr std::size_t rows {std::size(image)};
+        constexpr std::size_t cols {std::size(image[0])};
 
-        for (int i {0}; i < 7; ++i)
+        for (std::size_t i {0}; i < rows; ++i)
         {
-            for (int j {0}; j < 7; ++j)
+            for (std::size_t j {0}; j < cols; ++j)
             {
-                const auto x =
-                    static_cast<float>(j) / static_cast<float>(7 - 1) * 2.0f -
-                    1.0f;
-                const auto y =
-                    static_cast<float>(i) / static_cast<float>(7 - 1) * 2.0f -
-                    1.0f;
-                const float learning_rate {0.01f};
-                stochastic_gradient_descent(network,
-                                            Eigen::Vector2f(x, y),
-                                            image[i][j]
-                                                ? Eigen::Vector3f(1, 1, 1)
-                                                : Eigen::Vector3f(-1, -1, -1),
-                                            learning_rate);
+                const auto x = static_cast<float>(j) /
+                                   static_cast<float>(cols - 1) * 2.0f -
+                               1.0f;
+                const auto y = static_cast<float>(i) /
+                                   static_cast<float>(rows - 1) * 2.0f -
+                               1.0f;
+                const float learning_rate {0.002f};
+                input.setZero();
+                input << x, y;
+                stochastic_gradient_descent(
+                    network,
+                    input,
+                    image[i][j] ? Eigen::Vector3f(0.9f, 0.9f, 0.9f)
+                                : Eigen::Vector3f(-0.9f, -0.9f, -0.9f),
+                    learning_rate);
             }
         }
     }
@@ -168,11 +230,12 @@ int main()
     try
     {
         Network network {};
-        network_init(network, {20, 20, 20, 20});
+        init_network(network, {2, 40, 20, 20});
+        Eigen::VectorXf input(2);
 
         Eigen::internal::set_is_malloc_allowed(false);
 
-        application_main(network);
+        application_main(network, input);
 
         return EXIT_SUCCESS;
     }

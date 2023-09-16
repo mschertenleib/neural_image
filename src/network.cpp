@@ -3,83 +3,62 @@
 namespace
 {
 
-template <int size, int previous_layer_size>
-void layer_init(Layer<size, previous_layer_size> &layer,
-                int runtime_size,
-                int runtime_previous_layer_size)
+template <int N, int N_previous>
+void init_layer(Layer<N, N_previous> &layer, int size, int previous_layer_size)
 {
-    layer.weights.setRandom(runtime_size, runtime_previous_layer_size);
-    layer.biases.setRandom(runtime_size);
-    layer.activations.setZero(runtime_size);
-    layer.deltas.setZero(runtime_size);
+    layer.weights.setRandom(size, previous_layer_size);
+    layer.biases.setRandom(size);
+    layer.activations.setZero(size);
+    layer.deltas.setZero(size);
 }
 
-template <int size, int previous_layer_size>
-inline void
-hidden_layer_predict(Layer<size, previous_layer_size> &layer,
-                     const Eigen::Vector<float, previous_layer_size> &input)
+template <int N, int N_previous>
+inline void predict_leaky_relu(Layer<N, N_previous> &layer,
+                               const Eigen::Vector<float, N_previous> &input)
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
-    layer.activations = layer.activations.array().tanh().matrix();
-    //layer.activations = layer.activations.cwiseMax(0.0f);
+    layer.activations = layer.activations.cwiseMax(0.01f * layer.activations);
 }
 
-template <int size, int previous_layer_size>
-inline void
-output_layer_predict(Layer<size, previous_layer_size> &layer,
-                     const Eigen::Vector<float, previous_layer_size> &input)
+template <int N, int N_previous>
+inline void predict_tanh(Layer<N, N_previous> &layer,
+                         const Eigen::Vector<float, N_previous> &input)
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
     layer.activations = layer.activations.array().tanh().matrix();
 }
 
-template <int size, int previous_layer_size, int next_layer_size>
-inline void compute_deltas(Layer<size, previous_layer_size> &layer,
-                           const Layer<next_layer_size, size> &next_layer)
+template <int N, int N_previous, int N_next>
+inline void compute_deltas_leaky_relu(Layer<N, N_previous> &layer,
+                                      const Layer<N_next, N> &next_layer)
 {
     layer.deltas.noalias() = next_layer.weights.transpose() * next_layer.deltas;
-
-    layer.deltas = layer.deltas.cwiseProduct(
-        (1.0f - layer.activations.array().square()).matrix());
-
-    // FIXME: there must be a way to do this without multiplying by 0 or 1
-    //layer.deltas = layer.deltas.cwiseProduct(
-    //    (layer.activations.array() > 0.0f).matrix().template cast<float>());
+    layer.deltas.array() *=
+        (layer.activations.array() > 0.0f).template cast<float>() * 0.99f +
+        0.01f;
 }
 
 void compute_deltas(Network &network, const Eigen::Vector3f &output)
 {
-    network.output_layer.deltas =
-        (network.output_layer.activations - output)
-            .cwiseProduct(
-                (1.0f - network.output_layer.activations.array().square())
-                    .matrix());
+    network.output_layer.deltas.array() =
+        (network.output_layer.activations - output).array() *
+        (1.0f - network.output_layer.activations.array().square());
 
-    if (network.additional_hidden_layers.empty())
+    compute_deltas_leaky_relu(network.hidden_layers.back(),
+                              network.output_layer);
+    for (std::size_t i {network.hidden_layers.size() - 1}; i > 0; --i)
     {
-        compute_deltas(network.first_hidden_layer, network.output_layer);
-    }
-    else
-    {
-        compute_deltas(network.additional_hidden_layers.back(),
-                       network.output_layer);
-        for (std::size_t i {network.additional_hidden_layers.size() - 1}; i > 0;
-             --i)
-        {
-            compute_deltas(network.additional_hidden_layers[i - 1],
-                           network.additional_hidden_layers[i]);
-        }
-        compute_deltas(network.first_hidden_layer,
-                       network.additional_hidden_layers.front());
+        compute_deltas_leaky_relu(network.hidden_layers[i - 1],
+                                  network.hidden_layers[i]);
     }
 }
 
-template <int size, int previous_layer_size>
+template <int N, int N_previous>
 inline void update_weights(
-    Layer<size, previous_layer_size> &layer,
-    const Eigen::Vector<float, previous_layer_size> &previous_layer_activations,
+    Layer<N, N_previous> &layer,
+    const Eigen::Vector<float, N_previous> &previous_layer_activations,
     float learning_rate)
 {
     layer.weights.noalias() -=
@@ -88,97 +67,56 @@ inline void update_weights(
 }
 
 void update_weights(Network &network,
-                    const Eigen::Vector2f &input,
+                    const Eigen::VectorXf &input,
                     float learning_rate)
 {
-    if (network.additional_hidden_layers.empty())
+    update_weights(network.output_layer,
+                   network.hidden_layers.back().activations,
+                   learning_rate);
+    for (std::size_t i {network.hidden_layers.size() - 1}; i > 0; --i)
     {
-        update_weights(network.output_layer,
-                       network.first_hidden_layer.activations,
+        update_weights(network.hidden_layers[i],
+                       network.hidden_layers[i - 1].activations,
                        learning_rate);
     }
-    else
-    {
-        update_weights(network.output_layer,
-                       network.additional_hidden_layers.back().activations,
-                       learning_rate);
-        for (std::size_t i {network.additional_hidden_layers.size() - 1}; i > 0;
-             --i)
-        {
-            update_weights(network.additional_hidden_layers[i],
-                           network.additional_hidden_layers[i - 1].activations,
-                           learning_rate);
-        }
-        update_weights(network.additional_hidden_layers.front(),
-                       network.first_hidden_layer.activations,
-                       learning_rate);
-    }
-
-    update_weights(network.first_hidden_layer, input, learning_rate);
-}
-
-[[nodiscard]] float loss(const Network &network, const Eigen::Vector3f &output)
-{
-    return 0.5f *
-           (output - network.output_layer.activations).array().square().sum();
+    update_weights(network.hidden_layers.front(), input, learning_rate);
 }
 
 } // namespace
 
-void network_init(Network &network, const std::vector<int> &hidden_layers_sizes)
+void init_network(Network &network, const std::vector<int> &sizes)
 {
-    assert(!hidden_layers_sizes.empty());
+    assert(sizes.size() >= 2);
+    assert(sizes.front() == 2);
 
-    const auto num_hidden_layers = hidden_layers_sizes.size();
-    if (num_hidden_layers > 1)
+    const std::size_t num_hidden_layers {sizes.size() - 1};
+    network.hidden_layers.resize(num_hidden_layers);
+    for (std::size_t i {0}; i < num_hidden_layers; ++i)
     {
-        network.additional_hidden_layers.resize(num_hidden_layers - 1);
+        init_layer(network.hidden_layers[i], sizes[i + 1], sizes[i]);
     }
 
-    layer_init(network.first_hidden_layer, hidden_layers_sizes.front(), 2);
-
-    for (std::size_t i {0}; i < num_hidden_layers - 1; ++i)
-    {
-        layer_init(network.additional_hidden_layers[i],
-                   hidden_layers_sizes[i + 1],
-                   hidden_layers_sizes[i]);
-    }
-
-    layer_init(network.output_layer, 3, hidden_layers_sizes.back());
+    init_layer(network.output_layer, 3, sizes.back());
 }
 
-void network_predict(Network &network, const Eigen::Vector2f &input)
+void predict(Network &network, const Eigen::VectorXf &input)
 {
-    hidden_layer_predict(network.first_hidden_layer, input);
-
-    if (network.additional_hidden_layers.empty())
+    predict_leaky_relu(network.hidden_layers.front(), input);
+    for (std::size_t i {1}; i < network.hidden_layers.size(); ++i)
     {
-        output_layer_predict(network.output_layer,
-                             network.first_hidden_layer.activations);
+        predict_leaky_relu(network.hidden_layers[i],
+                           network.hidden_layers[i - 1].activations);
     }
-    else
-    {
-        hidden_layer_predict(network.additional_hidden_layers.front(),
-                             network.first_hidden_layer.activations);
-        for (std::size_t i {1}; i < network.additional_hidden_layers.size();
-             ++i)
-        {
-            hidden_layer_predict(
-                network.additional_hidden_layers[i],
-                network.additional_hidden_layers[i - 1].activations);
-        }
-        output_layer_predict(
-            network.output_layer,
-            network.additional_hidden_layers.back().activations);
-    }
+    predict_tanh(network.output_layer,
+                 network.hidden_layers.back().activations);
 }
 
 void stochastic_gradient_descent(Network &network,
-                                 const Eigen::Vector2f &input,
+                                 const Eigen::VectorXf &input,
                                  const Eigen::Vector3f &output,
                                  float learning_rate)
 {
-    network_predict(network, input);
+    predict(network, input);
     compute_deltas(network, output);
     update_weights(network, input, learning_rate);
 }

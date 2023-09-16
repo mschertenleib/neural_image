@@ -7,29 +7,27 @@
 
 #include <vector>
 
-template <int size, int previous_layer_size>
+template <int N, int N_previous>
 struct Layer
 {
-    Eigen::Matrix<float, size, previous_layer_size> weights;
-    Eigen::Vector<float, size> biases;
-    Eigen::Vector<float, size> activations;
-    Eigen::Vector<float, size> deltas;
+    Eigen::Matrix<float, N, N_previous> weights;
+    Eigen::Vector<float, N> biases;
+    Eigen::Vector<float, N> activations;
+    Eigen::Vector<float, N> deltas;
 };
 
 struct Network
 {
-    Layer<Eigen::Dynamic, 2> first_hidden_layer;
-    std::vector<Layer<Eigen::Dynamic, Eigen::Dynamic>> additional_hidden_layers;
+    std::vector<Layer<Eigen::Dynamic, Eigen::Dynamic>> hidden_layers;
     Layer<3, Eigen::Dynamic> output_layer;
 };
 
-void network_init(Network &network,
-                  const std::vector<int> &hidden_layers_sizes);
+void init_network(Network &network, const std::vector<int> &sizes);
 
-void network_predict(Network &network, const Eigen::Vector2f &input);
+void predict(Network &network, const Eigen::VectorXf &input);
 
 void stochastic_gradient_descent(Network &network,
-                                 const Eigen::Vector2f &input,
+                                 const Eigen::VectorXf &input,
                                  const Eigen::Vector3f &output,
                                  float learning_rate);
 
