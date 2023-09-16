@@ -7,7 +7,13 @@
 
 #include <vector>
 
-template <int N, int N_previous>
+enum struct Activation
+{
+    leaky_relu,
+    sigmoid
+};
+
+template <int N, int N_previous, Activation A>
 struct Layer
 {
     Eigen::Matrix<float, N, N_previous> weights;
@@ -18,14 +24,16 @@ struct Layer
 
 struct Network
 {
-    std::vector<Layer<Eigen::Dynamic, Eigen::Dynamic>> hidden_layers;
-    Layer<3, Eigen::Dynamic> output_layer;
+    std::vector<Layer<Eigen::Dynamic, Eigen::Dynamic, Activation::leaky_relu>>
+        hidden_layers;
+    Layer<3, Eigen::Dynamic, Activation::sigmoid> output_layer;
 };
 
 void init_network(Network &network, const std::vector<int> &sizes);
 
 void predict(Network &network, const Eigen::VectorXf &input);
 
+// TODO: mini-batch gradient descent
 void stochastic_gradient_descent(Network &network,
                                  const Eigen::VectorXf &input,
                                  const Eigen::Vector3f &output,

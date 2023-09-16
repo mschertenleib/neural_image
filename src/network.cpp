@@ -6,8 +6,8 @@
 namespace
 {
 
-template <int N, int N_previous>
-void init_layer_zero(Layer<N, N_previous> &layer,
+template <int N, int N_previous, Activation A>
+void init_layer_zero(Layer<N, N_previous, A> &layer,
                      int size,
                      int previous_layer_size)
 {
@@ -18,9 +18,9 @@ void init_layer_zero(Layer<N, N_previous> &layer,
 }
 
 template <int N, int N_previous>
-void init_layer_relu(Layer<N, N_previous> &layer,
-                     int size,
-                     int previous_layer_size)
+void init_layer_leaky_relu(Layer<N, N_previous, Activation::leaky_relu> &layer,
+                           int size,
+                           int previous_layer_size)
 {
     init_layer_zero(layer, size, previous_layer_size);
 
@@ -34,7 +34,7 @@ void init_layer_relu(Layer<N, N_previous> &layer,
 }
 
 template <int N, int N_previous>
-void init_layer_sigmoid(Layer<N, N_previous> &layer,
+void init_layer_sigmoid(Layer<N, N_previous, Activation::sigmoid> &layer,
                         int size,
                         int previous_layer_size)
 {
@@ -48,8 +48,9 @@ void init_layer_sigmoid(Layer<N, N_previous> &layer,
 }
 
 template <int N, int N_previous>
-inline void predict_leaky_relu(Layer<N, N_previous> &layer,
-                               const Eigen::Vector<float, N_previous> &input)
+inline void
+predict_leaky_relu(Layer<N, N_previous, Activation::leaky_relu> &layer,
+                   const Eigen::Vector<float, N_previous> &input)
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
@@ -57,7 +58,7 @@ inline void predict_leaky_relu(Layer<N, N_previous> &layer,
 }
 
 template <int N, int N_previous>
-inline void predict_sigmoid(Layer<N, N_previous> &layer,
+inline void predict_sigmoid(Layer<N, N_previous, Activation::sigmoid> &layer,
                             const Eigen::Vector<float, N_previous> &input)
 {
     layer.activations = layer.biases;
@@ -66,9 +67,10 @@ inline void predict_sigmoid(Layer<N, N_previous> &layer,
         0.5f * (layer.activations.array() * 0.5f).tanh() + 0.5f;
 }
 
-template <int N, int N_previous, int N_next>
-inline void compute_deltas_leaky_relu(Layer<N, N_previous> &layer,
-                                      const Layer<N_next, N> &next_layer)
+template <int N, int N_previous, int N_next, Activation A_next>
+inline void
+compute_deltas_leaky_relu(Layer<N, N_previous, Activation::leaky_relu> &layer,
+                          const Layer<N_next, N, A_next> &next_layer)
 {
     layer.deltas.noalias() = next_layer.weights.transpose() * next_layer.deltas;
     layer.deltas.array() *=
@@ -92,9 +94,9 @@ void compute_deltas(Network &network, const Eigen::Vector3f &output)
     }
 }
 
-template <int N, int N_previous>
+template <int N, int N_previous, Activation A>
 inline void update_weights(
-    Layer<N, N_previous> &layer,
+    Layer<N, N_previous, A> &layer,
     const Eigen::Vector<float, N_previous> &previous_layer_activations,
     float learning_rate)
 {
@@ -130,7 +132,7 @@ void init_network(Network &network, const std::vector<int> &sizes)
     network.hidden_layers.resize(num_hidden_layers);
     for (std::size_t i {0}; i < num_hidden_layers; ++i)
     {
-        init_layer_relu(network.hidden_layers[i], sizes[i + 1], sizes[i]);
+        init_layer_leaky_relu(network.hidden_layers[i], sizes[i + 1], sizes[i]);
     }
     init_layer_sigmoid(network.output_layer, 3, sizes.back());
 }
