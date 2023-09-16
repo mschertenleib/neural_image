@@ -1,5 +1,6 @@
 #include "network.hpp"
 
+#define STBI_FAILURE_USERMSG
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
@@ -139,8 +140,12 @@ inline void sdl_check(const auto *pointer)
     }
 }
 
-void application_main(Network &network, Eigen::VectorXf &input)
+void application_main(Network &network,
+                      Eigen::VectorXf &input,
+                      float learning_rate)
 {
+    const auto image = load_image("../landscape.jpg");
+
     sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
     DEFER([] { SDL_Quit(); });
 
@@ -153,13 +158,13 @@ void application_main(Network &network, Eigen::VectorXf &input)
     sdl_check(window);
     DEFER([window] { SDL_DestroyWindow(window); });
 
-    const auto renderer = SDL_CreateRenderer(
-        window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    const auto renderer =
+        SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     sdl_check(renderer);
     DEFER([renderer] { SDL_DestroyRenderer(renderer); });
 
-    const int texture_width {130};
-    const int texture_height {70};
+    const auto texture_width = static_cast<int>(image.width);
+    const auto texture_height = static_cast<int>(image.height);
     const auto texture = SDL_CreateTexture(renderer,
                                            SDL_PIXELFORMAT_ABGR8888,
                                            SDL_TEXTUREACCESS_STREAMING,
@@ -167,10 +172,6 @@ void application_main(Network &network, Eigen::VectorXf &input)
                                            texture_height);
     sdl_check(texture);
     DEFER([texture] { SDL_DestroyTexture(texture); });
-
-    constexpr auto image_file_name {"hey.pgm"};
-    create_test_image(image_file_name);
-    const auto image = load_image(image_file_name);
 
     bool quit {false};
     while (!quit)
@@ -223,7 +224,6 @@ void application_main(Network &network, Eigen::VectorXf &input)
         SDL_RenderPresent(renderer);
 
         float total_loss {0.0f};
-        const float learning_rate {0.005f};
         for (std::size_t i {0}; i < image.height; ++i)
         {
             for (std::size_t j {0}; j < image.width; ++j)
@@ -253,12 +253,12 @@ int main()
     try
     {
         Network network {};
-        init_network(network, {2, 40, 20});
+        init_network(network, {2, 128, 128, 128});
         Eigen::VectorXf input(2);
 
         Eigen::internal::set_is_malloc_allowed(false);
 
-        application_main(network, input);
+        application_main(network, input, 0.01f);
 
         return EXIT_SUCCESS;
     }

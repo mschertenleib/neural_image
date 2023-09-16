@@ -22,6 +22,9 @@ cmake --build build --target neural_image
 
 - https://www.youtube.com/watch?v=TkwXa7Cvfr8
 - https://www.youtube.com/watch?v=eqIMsdYPaNs
+- K. He, X. Zhang, S. Ren and J. Sun, "Delving Deep into Rectifiers: Surpassing
+  Human-Level Performance on ImageNet Classification", 2015,
+  doi: https://doi.org/10.48550/arXiv.1502.01852
 
 ## License
 

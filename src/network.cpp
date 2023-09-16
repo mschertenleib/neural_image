@@ -1,15 +1,30 @@
 #include "network.hpp"
 
+#include <cmath>
+#include <random>
+
 namespace
 {
 
 template <int N, int N_previous>
 void init_layer(Layer<N, N_previous> &layer, int size, int previous_layer_size)
 {
-    layer.weights.setRandom(size, previous_layer_size);
-    layer.biases.setRandom(size);
+    layer.weights.setZero(size, previous_layer_size);
+    layer.biases.setZero(size);
     layer.activations.setZero(size);
     layer.deltas.setZero(size);
+
+    // TODO: weight initialization should be different for tanh or sigmoid
+    // layers
+
+    std::random_device rd {};
+    std::minstd_rand generator {rd()};
+    const auto std_dev =
+        std::sqrt(2.0f / static_cast<float>(previous_layer_size));
+    std::normal_distribution<float> distribution {0.0f, std_dev};
+
+    const auto generate_weight = [&](float) { return distribution(generator); };
+    layer.weights = layer.weights.unaryExpr(generate_weight);
 }
 
 template <int N, int N_previous>
