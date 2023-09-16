@@ -7,24 +7,44 @@ namespace
 {
 
 template <int N, int N_previous>
-void init_layer(Layer<N, N_previous> &layer, int size, int previous_layer_size)
+void init_layer_zero(Layer<N, N_previous> &layer,
+                     int size,
+                     int previous_layer_size)
 {
     layer.weights.setZero(size, previous_layer_size);
     layer.biases.setZero(size);
     layer.activations.setZero(size);
     layer.deltas.setZero(size);
+}
 
-    // TODO: weight initialization should be different for tanh or sigmoid
-    // layers
+template <int N, int N_previous>
+void init_layer_relu(Layer<N, N_previous> &layer,
+                     int size,
+                     int previous_layer_size)
+{
+    init_layer_zero(layer, size, previous_layer_size);
 
     std::random_device rd {};
-    std::minstd_rand generator {rd()};
+    std::minstd_rand generator(rd());
     const auto std_dev =
         std::sqrt(2.0f / static_cast<float>(previous_layer_size));
-    std::normal_distribution<float> distribution {0.0f, std_dev};
-
+    std::normal_distribution<float> distribution(0.0f, std_dev);
     const auto generate_weight = [&](float) { return distribution(generator); };
     layer.weights = layer.weights.unaryExpr(generate_weight);
+}
+
+template <int N, int N_previous>
+void init_layer_sigmoid(Layer<N, N_previous> &layer,
+                        int size,
+                        int previous_layer_size)
+{
+    init_layer_zero(layer, size, previous_layer_size);
+
+    const auto max_weight =
+        4.0f * std::sqrt(6.0f / (static_cast<float>(previous_layer_size) +
+                                 static_cast<float>(size)));
+    layer.weights.setRandom();
+    layer.weights *= max_weight;
 }
 
 template <int N, int N_previous>
@@ -37,12 +57,13 @@ inline void predict_leaky_relu(Layer<N, N_previous> &layer,
 }
 
 template <int N, int N_previous>
-inline void predict_tanh(Layer<N, N_previous> &layer,
-                         const Eigen::Vector<float, N_previous> &input)
+inline void predict_sigmoid(Layer<N, N_previous> &layer,
+                            const Eigen::Vector<float, N_previous> &input)
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
-    layer.activations = layer.activations.array().tanh().matrix();
+    layer.activations.array() =
+        0.5f * (layer.activations.array() * 0.5f).tanh() + 0.5f;
 }
 
 template <int N, int N_previous, int N_next>
@@ -59,7 +80,8 @@ void compute_deltas(Network &network, const Eigen::Vector3f &output)
 {
     network.output_layer.deltas.array() =
         (network.output_layer.activations - output).array() *
-        (1.0f - network.output_layer.activations.array().square());
+        network.output_layer.activations.array() *
+        (1.0f - network.output_layer.activations.array());
 
     compute_deltas_leaky_relu(network.hidden_layers.back(),
                               network.output_layer);
@@ -108,10 +130,9 @@ void init_network(Network &network, const std::vector<int> &sizes)
     network.hidden_layers.resize(num_hidden_layers);
     for (std::size_t i {0}; i < num_hidden_layers; ++i)
     {
-        init_layer(network.hidden_layers[i], sizes[i + 1], sizes[i]);
+        init_layer_relu(network.hidden_layers[i], sizes[i + 1], sizes[i]);
     }
-
-    init_layer(network.output_layer, 3, sizes.back());
+    init_layer_sigmoid(network.output_layer, 3, sizes.back());
 }
 
 void predict(Network &network, const Eigen::VectorXf &input)
@@ -122,8 +143,8 @@ void predict(Network &network, const Eigen::VectorXf &input)
         predict_leaky_relu(network.hidden_layers[i],
                            network.hidden_layers[i - 1].activations);
     }
-    predict_tanh(network.output_layer,
-                 network.hidden_layers.back().activations);
+    predict_sigmoid(network.output_layer,
+                    network.hidden_layers.back().activations);
 }
 
 void stochastic_gradient_descent(Network &network,

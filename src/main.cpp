@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream>
 #include <iostream>
 #include <utility>
 #include <vector>
@@ -106,24 +105,6 @@ get_pixel(const Image &image, std::size_t i, std::size_t j)
             u8_to_float(image.pixel_data[pixel_index * 3 + 2])};
 }
 
-void create_test_image(const char *file_name)
-{
-    constexpr std::uint8_t pixels[7][13] {
-        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-        {0, 255, 0, 255, 0, 255, 255, 255, 0, 255, 0, 255, 0},
-        {0, 255, 0, 255, 0, 255, 0, 0, 0, 255, 0, 255, 0},
-        {0, 255, 255, 255, 0, 255, 255, 0, 0, 0, 255, 0, 0},
-        {0, 255, 0, 255, 0, 255, 0, 0, 0, 0, 255, 0, 0},
-        {0, 255, 0, 255, 0, 255, 255, 255, 0, 0, 255, 0, 0},
-        {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}};
-    constexpr std::size_t height {std::size(pixels)};
-    constexpr std::size_t width {std::size(pixels[0])};
-
-    std::ofstream file(file_name);
-    file << "P5 " << width << ' ' << height << " 255 ";
-    file.write(reinterpret_cast<const char *>(pixels), width * height);
-}
-
 inline void sdl_check(int result)
 {
     if (result != 0)
@@ -141,11 +122,10 @@ inline void sdl_check(const auto *pointer)
 }
 
 void application_main(Network &network,
+                      const Image &image,
                       Eigen::VectorXf &input,
                       float learning_rate)
 {
-    const auto image = load_image("../landscape.jpg");
-
     sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
     DEFER([] { SDL_Quit(); });
 
@@ -173,16 +153,20 @@ void application_main(Network &network,
     sdl_check(texture);
     DEFER([texture] { SDL_DestroyTexture(texture); });
 
-    bool quit {false};
-    while (!quit)
+    for (;;)
     {
         SDL_Event e;
+        bool quit {false};
         while (SDL_PollEvent(&e))
         {
             if (e.type == SDL_QUIT)
             {
                 quit = true;
             }
+        }
+        if (quit)
+        {
+            break;
         }
 
         Uint8 *pixels;
@@ -207,12 +191,9 @@ void application_main(Network &network,
                 input << x, y;
                 predict(network, input);
                 const auto &prediction = network.output_layer.activations;
-                pixels[pixel_index * 4 + 0] =
-                    float_to_u8((prediction[0] + 1.0f) * 0.5f);
-                pixels[pixel_index * 4 + 1] =
-                    float_to_u8((prediction[1] + 1.0f) * 0.5f);
-                pixels[pixel_index * 4 + 2] =
-                    float_to_u8((prediction[2] + 1.0f) * 0.5f);
+                pixels[pixel_index * 4 + 0] = float_to_u8(prediction[0]);
+                pixels[pixel_index * 4 + 1] = float_to_u8(prediction[1]);
+                pixels[pixel_index * 4 + 2] = float_to_u8(prediction[2]);
                 pixels[pixel_index * 4 + 3] = SDL_ALPHA_OPAQUE;
             }
         }
@@ -223,7 +204,6 @@ void application_main(Network &network,
         sdl_check(SDL_RenderCopy(renderer, texture, nullptr, nullptr));
         SDL_RenderPresent(renderer);
 
-        float total_loss {0.0f};
         for (std::size_t i {0}; i < image.height; ++i)
         {
             for (std::size_t j {0}; j < image.width; ++j)
@@ -239,26 +219,46 @@ void application_main(Network &network,
                 const auto output = get_pixel(image, i, j);
                 stochastic_gradient_descent(
                     network, input, output, learning_rate);
-                total_loss += loss(network, output);
             }
         }
-        std::cout << total_loss << '\n';
     }
 }
 
 } // namespace
 
-int main()
+int main(int argc, char *argv[])
 {
     try
     {
-        Network network {};
-        init_network(network, {2, 128, 128, 128});
-        Eigen::VectorXf input(2);
+        const auto print_usage = [argv] {
+            std::cerr << "Usage: " << argv[0]
+                      << " <image> <hidden layers sizes ...>";
+        };
 
+        if (argc < 3)
+        {
+            print_usage();
+            return EXIT_FAILURE;
+        }
+
+        const auto image_file_name = argv[1];
+
+        std::vector<int> sizes;
+        sizes.reserve(1 + static_cast<std::size_t>(argc - 2));
+        sizes.push_back(2);
+        for (int i {2}; i < argc; ++i)
+        {
+            sizes.push_back(std::stoi(argv[i]));
+        }
+
+        const auto image = load_image(image_file_name);
+
+        Network network {};
+        init_network(network, sizes);
+        Eigen::VectorXf input(sizes.front());
         Eigen::internal::set_is_malloc_allowed(false);
 
-        application_main(network, input, 0.01f);
+        application_main(network, image, input, 0.01f);
 
         return EXIT_SUCCESS;
     }
