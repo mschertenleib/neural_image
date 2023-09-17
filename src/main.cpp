@@ -19,7 +19,7 @@
 namespace
 {
 
-constexpr int input_size {128};
+constexpr int input_size {256};
 
 struct Training_pair
 {
@@ -80,22 +80,12 @@ Scope_guard(F &&) -> Scope_guard<F>;
     return static_cast<std::uint8_t>(f * 255.0f);
 }
 
-void get_fourier_features(Eigen::Vector<float, input_size> &v,
-                          std::size_t max_image_dimension,
-                          const Eigen::Vector2f &coordinates,
-                          std::minstd_rand &rng)
+void get_fourier_features_positional_encoding(
+    Eigen::Vector<float, input_size> &v,
+    std::size_t max_image_dimension,
+    const Eigen::Vector2f &coordinates)
 {
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
-#if 0
-    const float std_dev {1.0f};
-    std::normal_distribution<float> distribution(0.0f, std_dev);
-    const auto generate_weight = [&](float) { return distribution(rng); };
-
-    Eigen::Matrix<float, input_size / 2, 2> frequencies;
-    frequencies = frequencies.unaryExpr(generate_weight);
-    v << (two_pi * frequencies * coordinates).array().cos(),
-        (two_pi * frequencies * coordinates).array().sin();
-#else
     const auto max_frequency = static_cast<float>(max_image_dimension) * 0.5f;
     constexpr int m {input_size / 4};
     for (int j {0}; j < m; ++j)
@@ -107,7 +97,6 @@ void get_fourier_features(Eigen::Vector<float, input_size> &v,
         v(4 * j + 2) = std::sin(two_pi * frequency * coordinates.x());
         v(4 * j + 3) = std::sin(two_pi * frequency * coordinates.y());
     }
-#endif
 }
 
 [[nodiscard]] Training_dataset load_image(const char *file_name)
@@ -131,6 +120,15 @@ void get_fourier_features(Eigen::Vector<float, input_size> &v,
 
     std::random_device rd {};
     std::minstd_rand rng(rd());
+    constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
+    const auto std_dev = static_cast<float>(std::max(dataset.image_width,
+                                                     dataset.image_height)) *
+                         0.1f;
+    std::normal_distribution<float> distribution(0.0f, std_dev);
+    const auto generate_weight = [&](float) { return distribution(rng); };
+    Eigen::Matrix<float, input_size / 2, 2> frequencies;
+    frequencies = frequencies.unaryExpr(generate_weight);
+
     for (std::size_t i {0}; i < dataset.image_height; ++i)
     {
         for (std::size_t j {0}; j < dataset.image_width; ++j)
@@ -141,11 +139,17 @@ void get_fourier_features(Eigen::Vector<float, input_size> &v,
                            static_cast<float>(dataset.image_width - 1);
             const auto y = static_cast<float>(i) /
                            static_cast<float>(dataset.image_height - 1);
-            get_fourier_features(
+#if 1
+            get_fourier_features_positional_encoding(
                 input,
                 std::max(dataset.image_width, dataset.image_height),
-                {x, y},
-                rng);
+                {x, y});
+#else
+            input << (two_pi * frequencies * Eigen::Vector2f {x, y})
+                         .array()
+                         .cos(),
+                (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
+#endif
             output = {u8_to_float(image_data[pixel_index * 3 + 0]),
                       u8_to_float(image_data[pixel_index * 3 + 1]),
                       u8_to_float(image_data[pixel_index * 3 + 2])};
