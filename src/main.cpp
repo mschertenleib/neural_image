@@ -11,17 +11,27 @@
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <numbers>
+#include <random>
 #include <utility>
 #include <vector>
 
 namespace
 {
 
-struct Image
+constexpr int input_size {128};
+
+struct Training_pair
 {
-    std::size_t width;
-    std::size_t height;
-    std::vector<std::uint8_t> pixel_data;
+    Eigen::Vector<float, input_size> input;
+    Eigen::Vector3f output;
+};
+
+struct Training_dataset
+{
+    std::size_t image_width;
+    std::size_t image_height;
+    std::vector<Training_pair> training_pairs;
 };
 
 template <typename F>
@@ -54,7 +64,7 @@ Scope_guard(F &&) -> Scope_guard<F>;
 #define DEFER(f)               const Scope_guard CONCATENATE(scope_guard_, __LINE__)(f)
 
 [[maybe_unused]] [[nodiscard]] inline float loss(const Network &network,
-                                                 const Eigen::Vector3f &output)
+                                                 const Network::Output &output)
 {
     return 0.5f *
            (output - network.output_layer.activations).array().square().sum();
@@ -70,7 +80,37 @@ Scope_guard(F &&) -> Scope_guard<F>;
     return static_cast<std::uint8_t>(f * 255.0f);
 }
 
-[[nodiscard]] Image load_image(const char *file_name)
+void get_fourier_features(Eigen::Vector<float, input_size> &v,
+                          std::size_t max_image_dimension,
+                          const Eigen::Vector2f &coordinates,
+                          std::minstd_rand &rng)
+{
+    constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
+#if 0
+    const float std_dev {1.0f};
+    std::normal_distribution<float> distribution(0.0f, std_dev);
+    const auto generate_weight = [&](float) { return distribution(rng); };
+
+    Eigen::Matrix<float, input_size / 2, 2> frequencies;
+    frequencies = frequencies.unaryExpr(generate_weight);
+    v << (two_pi * frequencies * coordinates).array().cos(),
+        (two_pi * frequencies * coordinates).array().sin();
+#else
+    const auto max_frequency = static_cast<float>(max_image_dimension) * 0.5f;
+    constexpr int m {input_size / 4};
+    for (int j {0}; j < m; ++j)
+    {
+        const auto frequency = std::pow(
+            max_frequency, static_cast<float>(j) / static_cast<float>(m - 1));
+        v(4 * j + 0) = std::cos(two_pi * frequency * coordinates.x());
+        v(4 * j + 1) = std::cos(two_pi * frequency * coordinates.y());
+        v(4 * j + 2) = std::sin(two_pi * frequency * coordinates.x());
+        v(4 * j + 3) = std::sin(two_pi * frequency * coordinates.y());
+    }
+#endif
+}
+
+[[nodiscard]] Training_dataset load_image(const char *file_name)
 {
     int width;
     int height;
@@ -84,25 +124,35 @@ Scope_guard(F &&) -> Scope_guard<F>;
     }
     DEFER([image_data] { stbi_image_free(image_data); });
 
-    Image image {.width = static_cast<std::size_t>(width),
-                 .height = static_cast<std::size_t>(height),
-                 .pixel_data = {}};
+    Training_dataset dataset {.image_width = static_cast<std::size_t>(width),
+                              .image_height = static_cast<std::size_t>(height),
+                              .training_pairs = {}};
+    dataset.training_pairs.resize(dataset.image_width * dataset.image_height);
 
-    image.pixel_data.assign(
-        image_data,
-        image_data +
-            static_cast<std::size_t>(width * height * desired_channels));
+    std::random_device rd {};
+    std::minstd_rand rng(rd());
+    for (std::size_t i {0}; i < dataset.image_height; ++i)
+    {
+        for (std::size_t j {0}; j < dataset.image_width; ++j)
+        {
+            const auto pixel_index = i * dataset.image_width + j;
+            auto &[input, output] = dataset.training_pairs[pixel_index];
+            const auto x = static_cast<float>(j) /
+                           static_cast<float>(dataset.image_width - 1);
+            const auto y = static_cast<float>(i) /
+                           static_cast<float>(dataset.image_height - 1);
+            get_fourier_features(
+                input,
+                std::max(dataset.image_width, dataset.image_height),
+                {x, y},
+                rng);
+            output = {u8_to_float(image_data[pixel_index * 3 + 0]),
+                      u8_to_float(image_data[pixel_index * 3 + 1]),
+                      u8_to_float(image_data[pixel_index * 3 + 2])};
+        }
+    }
 
-    return image;
-}
-
-[[nodiscard]] inline Eigen::Vector3f
-get_pixel(const Image &image, std::size_t i, std::size_t j)
-{
-    const auto pixel_index = i * image.width + j;
-    return {u8_to_float(image.pixel_data[pixel_index * 3 + 0]),
-            u8_to_float(image.pixel_data[pixel_index * 3 + 1]),
-            u8_to_float(image.pixel_data[pixel_index * 3 + 2])};
+    return dataset;
 }
 
 inline void sdl_check(int result)
@@ -151,8 +201,8 @@ inline void sdl_check(const auto *pointer)
 }
 
 void application_main(Network &network,
-                      const Image &image,
-                      Eigen::VectorXf &input,
+                      const Training_dataset &dataset,
+                      Network::Input &input,
                       float learning_rate)
 {
     sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
@@ -173,11 +223,12 @@ void application_main(Network &network,
     sdl_check(renderer);
     DEFER([renderer] { SDL_DestroyRenderer(renderer); });
 
-    const auto texture = SDL_CreateTexture(renderer,
-                                           SDL_PIXELFORMAT_ABGR8888,
-                                           SDL_TEXTUREACCESS_STREAMING,
-                                           static_cast<int>(image.width),
-                                           static_cast<int>(image.height));
+    const auto texture =
+        SDL_CreateTexture(renderer,
+                          SDL_PIXELFORMAT_ABGR8888,
+                          SDL_TEXTUREACCESS_STREAMING,
+                          static_cast<int>(dataset.image_width),
+                          static_cast<int>(dataset.image_height));
     sdl_check(texture);
     DEFER([texture] { SDL_DestroyTexture(texture); });
 
@@ -202,19 +253,13 @@ void application_main(Network &network,
         sdl_check(SDL_LockTexture(
             texture, nullptr, reinterpret_cast<void **>(&pixels), &pitch));
 
-        for (std::size_t i {0}; i < image.height; ++i)
+        for (std::size_t i {0}; i < dataset.image_height; ++i)
         {
-            for (std::size_t j {0}; j < image.width; ++j)
+            for (std::size_t j {0}; j < dataset.image_width; ++j)
             {
-                const auto pixel_index = i * image.width + j;
-                const auto x = static_cast<float>(j) /
-                                   static_cast<float>(image.width - 1) * 2.0f -
-                               1.0f;
-                const auto y = static_cast<float>(i) /
-                                   static_cast<float>(image.height - 1) * 2.0f -
-                               1.0f;
-                input << x, y;
-                predict(network, input);
+                const auto pixel_index = i * dataset.image_width + j;
+                input = dataset.training_pairs[pixel_index].input;
+                network_predict(network, input);
                 const auto &prediction = network.output_layer.activations;
                 pixels[pixel_index * 4 + 0] = float_to_u8(prediction[0]);
                 pixels[pixel_index * 4 + 1] = float_to_u8(prediction[1]);
@@ -223,33 +268,21 @@ void application_main(Network &network,
             }
         }
 
-        float total_loss {0.0f};
-        for (std::size_t i {0}; i < image.height; ++i)
+        for (const auto &training_pair : dataset.training_pairs)
         {
-            for (std::size_t j {0}; j < image.width; ++j)
-            {
-                const auto x = static_cast<float>(j) /
-                                   static_cast<float>(image.width - 1) * 2.0f -
-                               1.0f;
-                const auto y = static_cast<float>(i) /
-                                   static_cast<float>(image.height - 1) * 2.0f -
-                               1.0f;
-                input << x, y;
-                const auto &output = get_pixel(image, i, j);
-                stochastic_gradient_descent(
-                    network, input, output, learning_rate);
-                total_loss += loss(network, output);
-            }
+            input << training_pair.input;
+            network_predict(network, input);
+            network_update_weights(
+                network, input, training_pair.output, learning_rate);
         }
-        std::cout << total_loss << '\n';
 
         SDL_UnlockTexture(texture);
 
         sdl_check(SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE));
         sdl_check(SDL_RenderClear(renderer));
 
-        const auto dest_rect =
-            get_target_rect(renderer, image.width, image.height);
+        const auto dest_rect = get_target_rect(
+            renderer, dataset.image_width, dataset.image_height);
         sdl_check(SDL_RenderCopy(renderer, texture, nullptr, &dest_rect));
 
         SDL_RenderPresent(renderer);
@@ -277,7 +310,7 @@ int main(int argc, char *argv[])
 
         std::vector<int> sizes;
         sizes.reserve(1 + static_cast<std::size_t>(argc - 2));
-        sizes.push_back(2);
+        sizes.push_back(input_size);
         for (int i {2}; i < argc; ++i)
         {
             sizes.push_back(std::stoi(argv[i]));
@@ -286,8 +319,8 @@ int main(int argc, char *argv[])
         const auto image = load_image(image_file_name);
 
         Network network {};
-        init_network(network, sizes);
-        Eigen::VectorXf input(sizes.front());
+        network_init(network, sizes);
+        Network::Input input(input_size);
         Eigen::internal::set_is_malloc_allowed(false);
 
         application_main(network, image, input, 0.01f);

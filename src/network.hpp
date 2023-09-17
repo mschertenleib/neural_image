@@ -13,30 +13,32 @@ enum struct Activation
     sigmoid
 };
 
-template <int N, int N_previous, Activation A>
+template <int Size, int Input_size, Activation A>
 struct Layer
 {
-    Eigen::Matrix<float, N, N_previous> weights;
-    Eigen::Vector<float, N> biases;
-    Eigen::Vector<float, N> activations;
-    Eigen::Vector<float, N> deltas;
+    Eigen::Matrix<float, Size, Input_size> weights;
+    Eigen::Vector<float, Size> biases;
+    Eigen::Vector<float, Size> activations;
+    Eigen::Vector<float, Size> deltas;
 };
 
 struct Network
 {
+    using Input = Eigen::VectorXf;
+    using Output = Eigen::Vector3f;
+
     std::vector<Layer<Eigen::Dynamic, Eigen::Dynamic, Activation::leaky_relu>>
         hidden_layers;
     Layer<3, Eigen::Dynamic, Activation::sigmoid> output_layer;
 };
 
-void init_network(Network &network, const std::vector<int> &sizes);
+void network_init(Network &network, const std::vector<int> &sizes);
 
-void predict(Network &network, const Eigen::VectorXf &input);
+void network_predict(Network &network, const Network::Input &input);
 
-// TODO: mini-batch gradient descent
-void stochastic_gradient_descent(Network &network,
-                                 const Eigen::VectorXf &input,
-                                 const Eigen::Vector3f &output,
-                                 float learning_rate);
+void network_update_weights(Network &network,
+                            const Network::Input &input,
+                            const Network::Output &output,
+                            float learning_rate);
 
 #endif // NETWORK_HPP
