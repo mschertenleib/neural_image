@@ -121,6 +121,35 @@ inline void sdl_check(const auto *pointer)
     }
 }
 
+[[nodiscard]] SDL_Rect get_target_rect(SDL_Renderer *renderer,
+                                       std::size_t image_width,
+                                       std::size_t image_height)
+{
+    SDL_Rect viewport {};
+    SDL_RenderGetViewport(renderer, &viewport);
+
+    const auto image_aspect_ratio =
+        static_cast<float>(image_width) / static_cast<float>(image_height);
+    const auto target_aspect_ratio =
+        static_cast<float>(viewport.w) / static_cast<float>(viewport.h);
+
+    auto rect = viewport;
+    if (target_aspect_ratio >= image_aspect_ratio)
+    {
+        rect.w =
+            static_cast<int>(static_cast<float>(rect.h) * image_aspect_ratio);
+        rect.x = (viewport.w - rect.w) / 2;
+    }
+    else
+    {
+        rect.h =
+            static_cast<int>(static_cast<float>(rect.w) / image_aspect_ratio);
+        rect.y = (viewport.h - rect.h) / 2;
+    }
+
+    return rect;
+}
+
 void application_main(Network &network,
                       const Image &image,
                       Eigen::VectorXf &input,
@@ -138,18 +167,17 @@ void application_main(Network &network,
     sdl_check(window);
     DEFER([window] { SDL_DestroyWindow(window); });
 
+    // TODO: decouple learning speed from framerate, and re-enable V-sync
     const auto renderer =
         SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     sdl_check(renderer);
     DEFER([renderer] { SDL_DestroyRenderer(renderer); });
 
-    const auto texture_width = static_cast<int>(image.width);
-    const auto texture_height = static_cast<int>(image.height);
     const auto texture = SDL_CreateTexture(renderer,
                                            SDL_PIXELFORMAT_ABGR8888,
                                            SDL_TEXTUREACCESS_STREAMING,
-                                           texture_width,
-                                           texture_height);
+                                           static_cast<int>(image.width),
+                                           static_cast<int>(image.height));
     sdl_check(texture);
     DEFER([texture] { SDL_DestroyTexture(texture); });
 
@@ -174,20 +202,17 @@ void application_main(Network &network,
         sdl_check(SDL_LockTexture(
             texture, nullptr, reinterpret_cast<void **>(&pixels), &pitch));
 
-        for (int i {0}; i < texture_height; ++i)
+        for (std::size_t i {0}; i < image.height; ++i)
         {
-            for (int j {0}; j < texture_width; ++j)
+            for (std::size_t j {0}; j < image.width; ++j)
             {
-                const auto pixel_index = i * texture_width + j;
+                const auto pixel_index = i * image.width + j;
                 const auto x = static_cast<float>(j) /
-                                   static_cast<float>(texture_width - 1) *
-                                   2.0f -
+                                   static_cast<float>(image.width - 1) * 2.0f -
                                1.0f;
                 const auto y = static_cast<float>(i) /
-                                   static_cast<float>(texture_height - 1) *
-                                   2.0f -
+                                   static_cast<float>(image.height - 1) * 2.0f -
                                1.0f;
-                input.setZero();
                 input << x, y;
                 predict(network, input);
                 const auto &prediction = network.output_layer.activations;
@@ -198,12 +223,7 @@ void application_main(Network &network,
             }
         }
 
-        SDL_UnlockTexture(texture);
-        sdl_check(SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE));
-        sdl_check(SDL_RenderClear(renderer));
-        sdl_check(SDL_RenderCopy(renderer, texture, nullptr, nullptr));
-        SDL_RenderPresent(renderer);
-
+        float total_loss {0.0f};
         for (std::size_t i {0}; i < image.height; ++i)
         {
             for (std::size_t j {0}; j < image.width; ++j)
@@ -214,13 +234,25 @@ void application_main(Network &network,
                 const auto y = static_cast<float>(i) /
                                    static_cast<float>(image.height - 1) * 2.0f -
                                1.0f;
-                input.setZero();
                 input << x, y;
-                const auto output = get_pixel(image, i, j);
+                const auto &output = get_pixel(image, i, j);
                 stochastic_gradient_descent(
                     network, input, output, learning_rate);
+                total_loss += loss(network, output);
             }
         }
+        std::cout << total_loss << '\n';
+
+        SDL_UnlockTexture(texture);
+
+        sdl_check(SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE));
+        sdl_check(SDL_RenderClear(renderer));
+
+        const auto dest_rect =
+            get_target_rect(renderer, image.width, image.height);
+        sdl_check(SDL_RenderCopy(renderer, texture, nullptr, &dest_rect));
+
+        SDL_RenderPresent(renderer);
     }
 }
 

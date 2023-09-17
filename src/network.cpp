@@ -20,16 +20,15 @@ void init_layer_zero(Layer<N, N_previous, A> &layer,
 template <int N, int N_previous>
 void init_layer_leaky_relu(Layer<N, N_previous, Activation::leaky_relu> &layer,
                            int size,
-                           int previous_layer_size)
+                           int previous_layer_size,
+                           std::minstd_rand &rng)
 {
     init_layer_zero(layer, size, previous_layer_size);
 
-    std::random_device rd {};
-    std::minstd_rand generator(rd());
     const auto std_dev =
         std::sqrt(2.0f / static_cast<float>(previous_layer_size));
     std::normal_distribution<float> distribution(0.0f, std_dev);
-    const auto generate_weight = [&](float) { return distribution(generator); };
+    const auto generate_weight = [&](float) { return distribution(rng); };
     layer.weights = layer.weights.unaryExpr(generate_weight);
 }
 
@@ -63,8 +62,7 @@ inline void predict_sigmoid(Layer<N, N_previous, Activation::sigmoid> &layer,
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
-    layer.activations.array() =
-        0.5f * (layer.activations.array() * 0.5f).tanh() + 0.5f;
+    layer.activations = 0.5f * (layer.activations.array() * 0.5f).tanh() + 0.5f;
 }
 
 template <int N, int N_previous, int N_next, Activation A_next>
@@ -130,9 +128,14 @@ void init_network(Network &network, const std::vector<int> &sizes)
 
     const std::size_t num_hidden_layers {sizes.size() - 1};
     network.hidden_layers.resize(num_hidden_layers);
+
+    std::random_device rd {};
+    std::minstd_rand rng(rd());
+
     for (std::size_t i {0}; i < num_hidden_layers; ++i)
     {
-        init_layer_leaky_relu(network.hidden_layers[i], sizes[i + 1], sizes[i]);
+        init_layer_leaky_relu(
+            network.hidden_layers[i], sizes[i + 1], sizes[i], rng);
     }
     init_layer_sigmoid(network.output_layer, 3, sizes.back());
 }
