@@ -19,7 +19,7 @@
 namespace
 {
 
-constexpr int input_size {256};
+constexpr int input_size {128};
 
 struct Training_pair
 {
