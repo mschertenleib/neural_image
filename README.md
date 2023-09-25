@@ -1,5 +1,19 @@
 # neural_image
 
+A neural network learning the mapping between pixel coordinates and pixel color
+of an image. In practice, the 2D input is not used directly, but converted to a
+set of sines and cosines of different frequencies (Fourier features), allowing
+the network to learn high-frequency details much more easily.
+
+## Example
+
+The output image on the right was obtained using 128 input Fourier features, 3
+leaky ReLU hidden layers of 128 neurons each, and a sigmoid output layer. The
+network was trained using stochastic gradient descent for 100 epochs.
+
+![Input](input.png)
+![Output](output.png)
+
 ## Build
 
 All dependencies are handled
@@ -17,6 +31,7 @@ cmake --build build --target neural_image
 - [Eigen](https://github.com/libeigen/eigen)
 - [SDL](https://github.com/libsdl-org/SDL)
 - [stb_image](https://github.com/nothings/stb)
+- [stb_image_write](https://github.com/nothings/stb)
 
 ## Inspiration & References
 

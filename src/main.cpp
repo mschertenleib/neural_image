@@ -4,6 +4,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
 #define SDL_MAIN_HANDLED
 #include <SDL2/SDL.h>
 
@@ -123,7 +126,7 @@ void get_fourier_features_positional_encoding(
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
     const auto std_dev = static_cast<float>(std::max(dataset.image_width,
                                                      dataset.image_height)) *
-                         0.1f;
+                         0.02f;
     std::normal_distribution<float> distribution(0.0f, std_dev);
     const auto generate_weight = [&](float) { return distribution(rng); };
     Eigen::Matrix<float, input_size / 2, 2> frequencies;
@@ -157,6 +160,62 @@ void get_fourier_features_positional_encoding(
     }
 
     return dataset;
+}
+
+void store_image(Network &network,
+                 const Training_dataset &dataset,
+                 const char *file_name,
+                 std::size_t width,
+                 std::size_t height)
+{
+    std::vector<std::uint8_t> pixel_data(width * height * 4);
+
+    Eigen::Vector<float, input_size> input;
+
+    for (std::size_t i {0}; i < height; ++i)
+    {
+        for (std::size_t j {0}; j < width; ++j)
+        {
+            const auto x =
+                static_cast<float>(j) / static_cast<float>(width - 1);
+            const auto y =
+                static_cast<float>(i) / static_cast<float>(height - 1);
+
+            // FIXME: these have to be the same features (frequencies) used for
+            // training, we really should store them somewhere and not call this
+            // function again
+            get_fourier_features_positional_encoding(
+                input,
+                std::max(dataset.image_width, dataset.image_height),
+                {x, y});
+
+            network_predict(network, input);
+
+            const auto pixel_index = i * width + j;
+            pixel_data[pixel_index * 4 + 0] =
+                float_to_u8(network.output_layer.activations(0));
+            pixel_data[pixel_index * 4 + 1] =
+                float_to_u8(network.output_layer.activations(1));
+            pixel_data[pixel_index * 4 + 2] =
+                float_to_u8(network.output_layer.activations(2));
+            pixel_data[pixel_index * 4 + 3] = 255;
+        }
+
+        std::cout << static_cast<float>(i) / static_cast<float>(height - 1) *
+                         100.0f
+                  << "%\n";
+    }
+
+    const auto write_result = stbi_write_png(file_name,
+                                             static_cast<int>(width),
+                                             static_cast<int>(height),
+                                             4,
+                                             pixel_data.data(),
+                                             static_cast<int>(width) * 4);
+    if (write_result == 0)
+    {
+        throw std::runtime_error("Failed to store image");
+    }
 }
 
 inline void sdl_check(int result)
@@ -236,6 +295,8 @@ void application_main(Network &network,
     sdl_check(texture);
     DEFER([texture] { SDL_DestroyTexture(texture); });
 
+    int epochs {0};
+
     for (;;)
     {
         SDL_Event e;
@@ -279,6 +340,8 @@ void application_main(Network &network,
             network_update_weights(
                 network, input, training_pair.output, learning_rate);
         }
+        ++epochs;
+        std::cout << epochs << " epochs\n";
 
         SDL_UnlockTexture(texture);
 
@@ -291,6 +354,12 @@ void application_main(Network &network,
 
         SDL_RenderPresent(renderer);
     }
+
+    /*store_image(network,
+                dataset,
+                "../test.png",
+                dataset.image_width,
+                dataset.image_height);*/
 }
 
 } // namespace
