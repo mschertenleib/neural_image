@@ -7,7 +7,7 @@ the network to learn high-frequency details much more easily.
 
 ## Example
 
-The output image on the right was obtained using 128 input Fourier features, 3
+The output image was obtained using 128 input Fourier features, 3
 leaky ReLU hidden layers of 128 neurons each, and a sigmoid output layer. The
 network was trained using stochastic gradient descent for 100 epochs.
 
