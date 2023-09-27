@@ -40,6 +40,17 @@ CPMAddPackage(
 )
 
 
+set(is_gnu_or_clang "$<CXX_COMPILER_ID:GNU,Clang,AppleClang>")
+add_compile_options(
+        $<${is_gnu_or_clang}:-march=native>
+        $<${is_gnu_or_clang}:-ffast-math>
+)
+add_compile_definitions(
+        EIGEN_RUNTIME_NO_MALLOC
+        EIGEN_NO_AUTOMATIC_RESIZING
+)
+
+
 add_executable(neural_image
         src/main.cpp
         src/network.cpp src/network.hpp
@@ -54,9 +65,7 @@ target_link_libraries(neural_image PRIVATE
 )
 
 
-set(CLANG_OPTIONS
-        -march=native
-        -ffast-math
+set(CLANG_WARNINGS
         -Wfatal-errors
         -Wall
         -Wextra
@@ -72,8 +81,8 @@ set(CLANG_OPTIONS
         -Wnull-dereference
         -Wdouble-promotion)
 
-set(GCC_OPTIONS
-        ${CLANG_OPTIONS}
+set(GCC_WARNINGS
+        ${CLANG_WARNINGS}
         -Wmisleading-indentation
         -Wduplicated-cond
         -Wduplicated-branches
@@ -82,11 +91,11 @@ set(GCC_OPTIONS
         -Wswitch-enum)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
-    target_compile_options(neural_image PRIVATE ${CLANG_OPTIONS})
+    target_compile_options(neural_image PRIVATE ${CLANG_WARNINGS})
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(neural_image PRIVATE ${GCC_OPTIONS})
+    target_compile_options(neural_image PRIVATE ${GCC_WARNINGS})
 else ()
-    message(WARNING "No compile options set for compiler '${CMAKE_CXX_COMPILER_ID}'")
+    message(WARNING "No warnings set for compiler '${CMAKE_CXX_COMPILER_ID}'")
 endif ()
 
 

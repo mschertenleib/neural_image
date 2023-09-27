@@ -1,8 +1,6 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 
-#define EIGEN_NO_AUTOMATIC_RESIZING
-#define EIGEN_RUNTIME_NO_MALLOC
 #include <Eigen/Dense>
 
 #include <vector>
