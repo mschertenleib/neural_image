@@ -18,11 +18,10 @@ void layer_init_zero(Layer<Size, Input_size, A> &layer,
 }
 
 template <int Size, int Input_size>
-void layer_init_leaky_relu(
-    Layer<Size, Input_size, Activation::leaky_relu> &layer,
-    int size,
-    int input_size,
-    std::minstd_rand &rng)
+void layer_init(Layer<Size, Input_size, Activation::leaky_relu> &layer,
+                int size,
+                int input_size,
+                std::minstd_rand &rng)
 {
     layer_init_zero(layer, size, input_size);
 
@@ -33,23 +32,25 @@ void layer_init_leaky_relu(
 }
 
 template <int Size, int Input_size>
-void layer_init_sigmoid(Layer<Size, Input_size, Activation::sigmoid> &layer,
-                        int size,
-                        int input_size)
+void layer_init(Layer<Size, Input_size, Activation::sigmoid> &layer,
+                int size,
+                int input_size,
+                std::minstd_rand &rng)
 {
     layer_init_zero(layer, size, input_size);
 
     const auto max_weight =
         4.0f * std::sqrt(6.0f / (static_cast<float>(input_size) +
                                  static_cast<float>(size)));
-    layer.weights.setRandom();
-    layer.weights *= max_weight;
+    std::uniform_real_distribution<float> distribution(-max_weight, max_weight);
+    const auto generate_weight = [&](float) { return distribution(rng); };
+    layer.weights = layer.weights.unaryExpr(generate_weight);
 }
 
 template <int Size, int Input_size>
 inline void
-layer_predict_leaky_relu(Layer<Size, Input_size, Activation::leaky_relu> &layer,
-                         const Eigen::Vector<float, Input_size> &input)
+layer_predict(Layer<Size, Input_size, Activation::leaky_relu> &layer,
+              const Eigen::Vector<float, Input_size> &input)
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
@@ -57,9 +58,8 @@ layer_predict_leaky_relu(Layer<Size, Input_size, Activation::leaky_relu> &layer,
 }
 
 template <int Size, int Input_size>
-inline void
-layer_predict_sigmoid(Layer<Size, Input_size, Activation::sigmoid> &layer,
-                      const Eigen::Vector<float, Input_size> &input)
+inline void layer_predict(Layer<Size, Input_size, Activation::sigmoid> &layer,
+                          const Eigen::Vector<float, Input_size> &input)
 {
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
@@ -67,9 +67,9 @@ layer_predict_sigmoid(Layer<Size, Input_size, Activation::sigmoid> &layer,
 }
 
 template <int Size, int Input_size, int Size_next, Activation A_next>
-inline void layer_update_deltas_leaky_relu(
-    Layer<Size, Input_size, Activation::leaky_relu> &layer,
-    const Layer<Size_next, Size, A_next> &next_layer)
+inline void
+layer_update_deltas(Layer<Size, Input_size, Activation::leaky_relu> &layer,
+                    const Layer<Size_next, Size, A_next> &next_layer)
 {
     layer.deltas.noalias() = next_layer.weights.transpose() * next_layer.deltas;
     layer.deltas.array() *=
@@ -93,12 +93,11 @@ void network_update_deltas(Network &network, const Network::Output &output)
         network.output_layer.activations.array() *
         (1.0f - network.output_layer.activations.array());
 
-    layer_update_deltas_leaky_relu(network.hidden_layers.back(),
-                                   network.output_layer);
+    layer_update_deltas(network.hidden_layers.back(), network.output_layer);
     for (std::size_t i {network.hidden_layers.size() - 1}; i > 0; --i)
     {
-        layer_update_deltas_leaky_relu(network.hidden_layers[i - 1],
-                                       network.hidden_layers[i]);
+        layer_update_deltas(network.hidden_layers[i - 1],
+                            network.hidden_layers[i]);
     }
 }
 
@@ -116,22 +115,21 @@ void network_init(Network &network, const std::vector<int> &sizes)
 
     for (std::size_t i {0}; i < num_hidden_layers; ++i)
     {
-        layer_init_leaky_relu(
-            network.hidden_layers[i], sizes[i + 1], sizes[i], rng);
+        layer_init(network.hidden_layers[i], sizes[i + 1], sizes[i], rng);
     }
-    layer_init_sigmoid(network.output_layer, 3, sizes.back());
+    layer_init(network.output_layer, 3, sizes.back(), rng);
 }
 
 void network_predict(Network &network, const Network::Input &input)
 {
-    layer_predict_leaky_relu(network.hidden_layers.front(), input);
+    layer_predict(network.hidden_layers.front(), input);
     for (std::size_t i {1}; i < network.hidden_layers.size(); ++i)
     {
-        layer_predict_leaky_relu(network.hidden_layers[i],
-                                 network.hidden_layers[i - 1].activations);
+        layer_predict(network.hidden_layers[i],
+                      network.hidden_layers[i - 1].activations);
     }
-    layer_predict_sigmoid(network.output_layer,
-                          network.hidden_layers.back().activations);
+    layer_predict(network.output_layer,
+                  network.hidden_layers.back().activations);
 }
 
 void network_update_weights(Network &network,
