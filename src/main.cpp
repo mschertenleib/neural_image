@@ -126,7 +126,7 @@ void get_fourier_features_positional_encoding(
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
     const auto std_dev = static_cast<float>(std::max(dataset.image_width,
                                                      dataset.image_height)) *
-                         0.02f;
+                         0.01f;
     std::normal_distribution<float> distribution(0.0f, std_dev);
     const auto generate_weight = [&](float) { return distribution(rng); };
     Eigen::Matrix<float, input_size / 2, 2> frequencies;
@@ -395,7 +395,6 @@ int main(int argc, char *argv[])
         network_init(network, sizes);
         Network::Input input(input_size);
         Eigen::internal::set_is_malloc_allowed(false);
-
         application_main(network, image, input, 0.01f);
 
         return EXIT_SUCCESS;

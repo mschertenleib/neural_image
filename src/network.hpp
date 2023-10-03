@@ -7,6 +7,7 @@
 
 enum struct Activation
 {
+    relu,
     leaky_relu,
     sigmoid
 };

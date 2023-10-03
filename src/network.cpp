@@ -18,6 +18,20 @@ void layer_init_zero(Layer<Size, Input_size, A> &layer,
 }
 
 template <int Size, int Input_size>
+void layer_init(Layer<Size, Input_size, Activation::relu> &layer,
+                int size,
+                int input_size,
+                std::minstd_rand &rng)
+{
+    layer_init_zero(layer, size, input_size);
+
+    const auto std_dev = std::sqrt(2.0f / static_cast<float>(input_size));
+    std::normal_distribution<float> distribution(0.0f, std_dev);
+    const auto generate_weight = [&](float) { return distribution(rng); };
+    layer.weights = layer.weights.unaryExpr(generate_weight);
+}
+
+template <int Size, int Input_size>
 void layer_init(Layer<Size, Input_size, Activation::leaky_relu> &layer,
                 int size,
                 int input_size,
@@ -48,6 +62,15 @@ void layer_init(Layer<Size, Input_size, Activation::sigmoid> &layer,
 }
 
 template <int Size, int Input_size>
+inline void layer_predict(Layer<Size, Input_size, Activation::relu> &layer,
+                          const Eigen::Vector<float, Input_size> &input)
+{
+    layer.activations = layer.biases;
+    layer.activations.noalias() += layer.weights * input;
+    layer.activations = layer.activations.cwiseMax(0.0f);
+}
+
+template <int Size, int Input_size>
 inline void
 layer_predict(Layer<Size, Input_size, Activation::leaky_relu> &layer,
               const Eigen::Vector<float, Input_size> &input)
@@ -64,6 +87,16 @@ inline void layer_predict(Layer<Size, Input_size, Activation::sigmoid> &layer,
     layer.activations = layer.biases;
     layer.activations.noalias() += layer.weights * input;
     layer.activations = 0.5f * (layer.activations.array() * 0.5f).tanh() + 0.5f;
+}
+
+template <int Size, int Input_size, int Size_next, Activation A_next>
+inline void
+layer_update_deltas(Layer<Size, Input_size, Activation::relu> &layer,
+                    const Layer<Size_next, Size, A_next> &next_layer)
+{
+    layer.deltas.noalias() = next_layer.weights.transpose() * next_layer.deltas;
+    layer.deltas.array() *=
+        (layer.activations.array() > 0.0f).template cast<float>();
 }
 
 template <int Size, int Input_size, int Size_next, Activation A_next>
