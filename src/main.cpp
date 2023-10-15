@@ -7,16 +7,13 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#define SDL_MAIN_HANDLED
-#include <SDL2/SDL.h>
-
 #include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <numbers>
 #include <random>
-#include <utility>
 #include <vector>
 
 namespace
@@ -37,41 +34,13 @@ struct Training_dataset
     std::vector<Training_pair> training_pairs;
 };
 
-template <typename F>
-class Scope_guard
+struct Free_image
 {
-public:
-    explicit Scope_guard(F &&f) : m_f {std::forward<F>(f)}
+    void operator()(stbi_uc *pointer)
     {
+        stbi_image_free(pointer);
     }
-
-    ~Scope_guard() noexcept
-    {
-        m_f();
-    }
-
-    Scope_guard(const Scope_guard &) = delete;
-    Scope_guard(Scope_guard &&) noexcept = delete;
-    Scope_guard &operator=(const Scope_guard &) = delete;
-    Scope_guard &operator=(Scope_guard &&) noexcept = delete;
-
-private:
-    F m_f;
 };
-
-template <typename F>
-Scope_guard(F &&) -> Scope_guard<F>;
-
-#define CONCATENATE_IMPL(a, b) a##b
-#define CONCATENATE(a, b)      CONCATENATE_IMPL(a, b)
-#define DEFER(f)               const Scope_guard CONCATENATE(scope_guard_, __LINE__)(f)
-
-[[maybe_unused]] [[nodiscard]] inline float loss(const Network &network,
-                                                 const Network::Output &output)
-{
-    return 0.5f *
-           (output - network.output_layer.activations).array().square().sum();
-}
 
 [[nodiscard]] constexpr float u8_to_float(std::uint8_t u)
 {
@@ -102,19 +71,20 @@ void get_fourier_features_positional_encoding(
     }
 }
 
-[[nodiscard]] Training_dataset load_image(const char *file_name)
+[[nodiscard]] Training_dataset load_dataset(const char *file_name)
 {
-    int width;
-    int height;
-    int channels_in_file;
+    std::cout << "Loading image \"" << file_name << "\"\n";
+
+    int width {};
+    int height {};
+    int channels_in_file {};
     constexpr int desired_channels {3};
-    auto *image_data = stbi_load(
-        file_name, &width, &height, &channels_in_file, desired_channels);
-    if (image_data == nullptr)
+    std::unique_ptr<stbi_uc[], Free_image> image {stbi_load(
+        file_name, &width, &height, &channels_in_file, desired_channels)};
+    if (!image)
     {
         throw std::runtime_error(stbi_failure_reason());
     }
-    DEFER([image_data] { stbi_image_free(image_data); });
 
     Training_dataset dataset {.image_width = static_cast<std::size_t>(width),
                               .image_height = static_cast<std::size_t>(height),
@@ -153,9 +123,9 @@ void get_fourier_features_positional_encoding(
                          .cos(),
                 (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
 #endif
-            output = {u8_to_float(image_data[pixel_index * 3 + 0]),
-                      u8_to_float(image_data[pixel_index * 3 + 1]),
-                      u8_to_float(image_data[pixel_index * 3 + 2])};
+            output = {u8_to_float(image[pixel_index * 3 + 0]),
+                      u8_to_float(image[pixel_index * 3 + 1]),
+                      u8_to_float(image[pixel_index * 3 + 2])};
         }
     }
 
@@ -164,22 +134,23 @@ void get_fourier_features_positional_encoding(
 
 void store_image(Network &network,
                  const Training_dataset &dataset,
-                 const char *file_name,
-                 std::size_t width,
-                 std::size_t height)
+                 const char *file_name)
 {
-    std::vector<std::uint8_t> pixel_data(width * height * 4);
+    std::cout << "Storing image \"" << file_name << "\"\n";
+
+    std::vector<std::uint8_t> pixel_data(dataset.image_width *
+                                         dataset.image_height * 4);
 
     Eigen::Vector<float, input_size> input;
 
-    for (std::size_t i {0}; i < height; ++i)
+    for (std::size_t i {0}; i < dataset.image_height; ++i)
     {
-        for (std::size_t j {0}; j < width; ++j)
+        for (std::size_t j {0}; j < dataset.image_width; ++j)
         {
-            const auto x =
-                static_cast<float>(j) / static_cast<float>(width - 1);
-            const auto y =
-                static_cast<float>(i) / static_cast<float>(height - 1);
+            const auto x = static_cast<float>(j) /
+                           static_cast<float>(dataset.image_width - 1);
+            const auto y = static_cast<float>(i) /
+                           static_cast<float>(dataset.image_height - 1);
 
             // FIXME: these have to be the same features (frequencies) used for
             // training, we really should store them somewhere and not call this
@@ -191,7 +162,7 @@ void store_image(Network &network,
 
             network_predict(network, input);
 
-            const auto pixel_index = i * width + j;
+            const auto pixel_index = i * dataset.image_width + j;
             pixel_data[pixel_index * 4 + 0] =
                 float_to_u8(network.output_layer.activations(0));
             pixel_data[pixel_index * 4 + 1] =
@@ -200,166 +171,19 @@ void store_image(Network &network,
                 float_to_u8(network.output_layer.activations(2));
             pixel_data[pixel_index * 4 + 3] = 255;
         }
-
-        std::cout << static_cast<float>(i) / static_cast<float>(height - 1) *
-                         100.0f
-                  << "%\n";
     }
 
-    const auto write_result = stbi_write_png(file_name,
-                                             static_cast<int>(width),
-                                             static_cast<int>(height),
-                                             4,
-                                             pixel_data.data(),
-                                             static_cast<int>(width) * 4);
+    const auto write_result =
+        stbi_write_png(file_name,
+                       static_cast<int>(dataset.image_width),
+                       static_cast<int>(dataset.image_height),
+                       4,
+                       pixel_data.data(),
+                       static_cast<int>(dataset.image_width) * 4);
     if (write_result == 0)
     {
         throw std::runtime_error("Failed to store image");
     }
-}
-
-inline void sdl_check(int result)
-{
-    if (result != 0)
-    {
-        throw std::runtime_error(SDL_GetError());
-    }
-}
-
-inline void sdl_check(const auto *pointer)
-{
-    if (pointer == nullptr)
-    {
-        throw std::runtime_error(SDL_GetError());
-    }
-}
-
-[[nodiscard]] SDL_Rect get_target_rect(SDL_Renderer *renderer,
-                                       std::size_t image_width,
-                                       std::size_t image_height)
-{
-    SDL_Rect viewport {};
-    SDL_RenderGetViewport(renderer, &viewport);
-
-    const auto image_aspect_ratio =
-        static_cast<float>(image_width) / static_cast<float>(image_height);
-    const auto target_aspect_ratio =
-        static_cast<float>(viewport.w) / static_cast<float>(viewport.h);
-
-    auto rect = viewport;
-    if (target_aspect_ratio >= image_aspect_ratio)
-    {
-        rect.w =
-            static_cast<int>(static_cast<float>(rect.h) * image_aspect_ratio);
-        rect.x = (viewport.w - rect.w) / 2;
-    }
-    else
-    {
-        rect.h =
-            static_cast<int>(static_cast<float>(rect.w) / image_aspect_ratio);
-        rect.y = (viewport.h - rect.h) / 2;
-    }
-
-    return rect;
-}
-
-void application_main(Network &network,
-                      const Training_dataset &dataset,
-                      Network::Input &input,
-                      float learning_rate)
-{
-    sdl_check(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS));
-    DEFER([] { SDL_Quit(); });
-
-    const auto window = SDL_CreateWindow("Neural Image",
-                                         SDL_WINDOWPOS_UNDEFINED,
-                                         SDL_WINDOWPOS_UNDEFINED,
-                                         1280,
-                                         720,
-                                         SDL_WINDOW_RESIZABLE);
-    sdl_check(window);
-    DEFER([window] { SDL_DestroyWindow(window); });
-
-    // TODO: decouple learning speed from framerate, and re-enable V-sync
-    const auto renderer =
-        SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    sdl_check(renderer);
-    DEFER([renderer] { SDL_DestroyRenderer(renderer); });
-
-    const auto texture =
-        SDL_CreateTexture(renderer,
-                          SDL_PIXELFORMAT_ABGR8888,
-                          SDL_TEXTUREACCESS_STREAMING,
-                          static_cast<int>(dataset.image_width),
-                          static_cast<int>(dataset.image_height));
-    sdl_check(texture);
-    DEFER([texture] { SDL_DestroyTexture(texture); });
-
-    int epochs {0};
-
-    for (;;)
-    {
-        SDL_Event e;
-        bool quit {false};
-        while (SDL_PollEvent(&e))
-        {
-            if (e.type == SDL_QUIT)
-            {
-                quit = true;
-            }
-        }
-        if (quit)
-        {
-            break;
-        }
-
-        Uint8 *pixels;
-        int pitch;
-        sdl_check(SDL_LockTexture(
-            texture, nullptr, reinterpret_cast<void **>(&pixels), &pitch));
-
-        for (std::size_t i {0}; i < dataset.image_height; ++i)
-        {
-            for (std::size_t j {0}; j < dataset.image_width; ++j)
-            {
-                const auto pixel_index = i * dataset.image_width + j;
-                input = dataset.training_pairs[pixel_index].input;
-                network_predict(network, input);
-                const auto &prediction = network.output_layer.activations;
-                pixels[pixel_index * 4 + 0] = float_to_u8(prediction[0]);
-                pixels[pixel_index * 4 + 1] = float_to_u8(prediction[1]);
-                pixels[pixel_index * 4 + 2] = float_to_u8(prediction[2]);
-                pixels[pixel_index * 4 + 3] = SDL_ALPHA_OPAQUE;
-            }
-        }
-
-        for (const auto &training_pair : dataset.training_pairs)
-        {
-            input << training_pair.input;
-            network_predict(network, input);
-            network_update_weights(
-                network, input, training_pair.output, learning_rate);
-        }
-        ++epochs;
-        std::cout << epochs << " epochs\n";
-
-        SDL_UnlockTexture(texture);
-
-        sdl_check(SDL_SetRenderDrawColor(renderer, 0, 0, 0, SDL_ALPHA_OPAQUE));
-        sdl_check(SDL_RenderClear(renderer));
-
-        const auto dest_rect = get_target_rect(
-            renderer, dataset.image_width, dataset.image_height);
-        sdl_check(SDL_RenderCopy(renderer, texture, nullptr, &dest_rect));
-
-        SDL_RenderPresent(renderer);
-    }
-
-    /*store_image(network,
-                dataset,
-                "../test.png",
-                dataset.image_width,
-                dataset.image_height);*/
 }
 
 } // namespace
@@ -368,34 +192,59 @@ int main(int argc, char *argv[])
 {
     try
     {
-        const auto print_usage = [argv] {
-            std::cerr << "Usage: " << argv[0]
-                      << " <image> <hidden layers sizes ...>";
-        };
-
-        if (argc < 3)
+        if (argc < 5)
         {
-            print_usage();
+            std::cerr << "Usage: " << argv[0]
+                      << " <input image> <output image> <epochs> <hidden "
+                         "layers sizes ...>";
             return EXIT_FAILURE;
         }
 
-        const auto image_file_name = argv[1];
+        const auto input_file_name = argv[1];
+        const auto output_file_name = argv[2];
+        const int num_epochs {std::stoi(argv[3])};
 
+        constexpr int first_size_index {4};
         std::vector<int> sizes;
-        sizes.reserve(1 + static_cast<std::size_t>(argc - 2));
+        sizes.reserve(static_cast<std::size_t>(1 + argc - first_size_index));
         sizes.push_back(input_size);
-        for (int i {2}; i < argc; ++i)
+        for (int i {first_size_index}; i < argc; ++i)
         {
             sizes.push_back(std::stoi(argv[i]));
         }
 
-        const auto image = load_image(image_file_name);
+        std::cout << "Input: \"" << input_file_name << "\"\n"
+                  << "Output: \"" << output_file_name << "\"\n"
+                  << "Epochs: " << num_epochs << '\n'
+                  << "Network layout: " << input_size << ' ';
+        for (const auto size : sizes)
+        {
+            std::cout << size << ' ';
+        }
+        std::cout << "3\n";
+
+        const auto dataset = load_dataset(input_file_name);
 
         Network network {};
         network_init(network, sizes);
         Network::Input input(input_size);
         Eigen::internal::set_is_malloc_allowed(false);
-        application_main(network, image, input, 0.01f);
+
+        constexpr float learning_rate {0.01f};
+
+        for (int epoch {0}; epoch < num_epochs; ++epoch)
+        {
+            std::cout << "Epoch " << epoch << '\n';
+            for (const auto &training_pair : dataset.training_pairs)
+            {
+                input << training_pair.input;
+                network_predict(network, input);
+                network_update_weights(
+                    network, input, training_pair.output, learning_rate);
+            }
+        }
+
+        store_image(network, dataset, output_file_name);
 
         return EXIT_SUCCESS;
     }

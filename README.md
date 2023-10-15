@@ -29,7 +29,6 @@ cmake --build build --target neural_image
 ## External libraries
 
 - [Eigen](https://github.com/libeigen/eigen)
-- [SDL](https://github.com/libsdl-org/SDL)
 - [stb_image](https://github.com/nothings/stb)
 - [stb_image_write](https://github.com/nothings/stb)
 

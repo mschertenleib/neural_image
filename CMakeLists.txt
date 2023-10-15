@@ -30,10 +30,6 @@ CPMAddPackage(
         DOWNLOAD_ONLY YES
 )
 CPMAddPackage(
-        GITHUB_REPOSITORY libsdl-org/SDL
-        GIT_TAG release-2.28.3
-)
-CPMAddPackage(
         GITHUB_REPOSITORY nothings/stb
         GIT_TAG 5736b15
         DOWNLOAD_ONLY YES
@@ -59,9 +55,6 @@ target_compile_features(neural_image PRIVATE cxx_std_20)
 target_include_directories(neural_image SYSTEM PRIVATE
         ${eigen_SOURCE_DIR}
         ${stb_SOURCE_DIR}
-)
-target_link_libraries(neural_image PRIVATE
-        SDL2::SDL2-static
 )
 
 
