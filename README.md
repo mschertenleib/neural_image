@@ -31,6 +31,7 @@ cmake --build build --target neural_image
 - [Eigen](https://github.com/libeigen/eigen)
 - [stb_image](https://github.com/nothings/stb)
 - [stb_image_write](https://github.com/nothings/stb)
+- [CLI11](https://github.com/CLIUtils/CLI11)
 
 ## Inspiration & References
 

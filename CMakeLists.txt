@@ -34,7 +34,11 @@ CPMAddPackage(
         GIT_TAG 5736b15
         DOWNLOAD_ONLY YES
 )
-
+CPMAddPackage(
+        GITHUB_REPOSITORY CLIUtils/CLI11
+        GIT_TAG ba833f0
+        DOWNLOAD_ONLY YES
+)
 
 set(is_gnu_or_clang "$<CXX_COMPILER_ID:GNU,Clang,AppleClang>")
 add_compile_options(
@@ -55,6 +59,7 @@ target_compile_features(neural_image PRIVATE cxx_std_20)
 target_include_directories(neural_image SYSTEM PRIVATE
         ${eigen_SOURCE_DIR}
         ${stb_SOURCE_DIR}
+        ${CLI11_SOURCE_DIR}/include
 )
 
 

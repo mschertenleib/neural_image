@@ -7,14 +7,17 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#include "CLI/CLI.hpp"
+
 #include <algorithm>
-#include <cstdint>
-#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <numbers>
+#include <optional>
 #include <random>
 #include <vector>
+
+#include <cstdlib>
 
 namespace
 {
@@ -36,7 +39,7 @@ struct Training_dataset
 
 struct Free_image
 {
-    void operator()(stbi_uc *pointer)
+    void operator()(stbi_uc *pointer) const
     {
         stbi_image_free(pointer);
     }
@@ -49,7 +52,7 @@ struct Free_image
 
 [[nodiscard]] constexpr std::uint8_t float_to_u8(float f)
 {
-    return static_cast<std::uint8_t>(f * 255.0f);
+    return static_cast<std::uint8_t>(std::clamp(f, 0.0f, 1.0f) * 255.0f);
 }
 
 void get_fourier_features_positional_encoding(
@@ -192,38 +195,33 @@ int main(int argc, char *argv[])
 {
     try
     {
-        if (argc < 5)
-        {
-            std::cerr << "Usage: " << argv[0]
-                      << " <input image> <output image> <epochs> <hidden "
-                         "layers sizes ...>";
-            return EXIT_FAILURE;
-        }
+        CLI::App app;
+        argv = app.ensure_utf8(argv);
 
-        const auto input_file_name = argv[1];
-        const auto output_file_name = argv[2];
-        const int num_epochs {std::stoi(argv[3])};
+        std::string input_file_name;
+        std::string output_file_name;
+        int num_epochs {1};
 
-        constexpr int first_size_index {4};
-        std::vector<int> sizes;
-        sizes.reserve(static_cast<std::size_t>(1 + argc - first_size_index));
-        sizes.push_back(input_size);
-        for (int i {first_size_index}; i < argc; ++i)
-        {
-            sizes.push_back(std::stoi(argv[i]));
-        }
+        app.add_option("-i,--input", input_file_name, "The input image");
+        app.add_option("-o,--output", output_file_name, "The output image");
+        app.add_option("--epochs", num_epochs, "Number of training epochs");
+
+        CLI11_PARSE(app, argc, argv)
+
+        // FIXME
+        const std::vector<int> sizes {input_size, 128, 128};
 
         std::cout << "Input: \"" << input_file_name << "\"\n"
                   << "Output: \"" << output_file_name << "\"\n"
                   << "Epochs: " << num_epochs << '\n'
-                  << "Network layout: " << input_size << ' ';
+                  << "Network layout: ";
         for (const auto size : sizes)
         {
             std::cout << size << ' ';
         }
         std::cout << "3\n";
 
-        const auto dataset = load_dataset(input_file_name);
+        const auto dataset = load_dataset(input_file_name.c_str());
 
         Network network {};
         network_init(network, sizes);
@@ -244,7 +242,7 @@ int main(int argc, char *argv[])
             }
         }
 
-        store_image(network, dataset, output_file_name);
+        store_image(network, dataset, output_file_name.c_str());
 
         return EXIT_SUCCESS;
     }
