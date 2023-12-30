@@ -22,6 +22,7 @@
 namespace
 {
 
+// FIXME: these really should be matrices
 struct Training_pair
 {
     Eigen::VectorXf input;
@@ -35,12 +36,12 @@ struct Dataset
     std::vector<Training_pair> training_pairs;
 };
 
-[[nodiscard]] constexpr float u8_to_float(std::uint8_t u)
+[[nodiscard]] constexpr float u8_to_float(std::uint8_t u) noexcept
 {
     return static_cast<float>(u) / 255.0f;
 }
 
-[[nodiscard]] constexpr std::uint8_t float_to_u8(float f)
+[[nodiscard]] constexpr std::uint8_t float_to_u8(float f) noexcept
 {
     return static_cast<std::uint8_t>(std::clamp(f, 0.0f, 1.0f) * 255.0f);
 }
@@ -200,7 +201,7 @@ int main(int argc, char *argv[])
         std::string input_file_name {};
         std::string output_file_name {"out.png"};
         unsigned int num_epochs {1};
-        std::vector<unsigned int> layer_sizes {128, 128, 128};
+        std::vector<Eigen::Index> layer_sizes {128, 128, 128};
         float learning_rate {0.01f};
 
         app.add_option("input", input_file_name, "The input image")
@@ -217,6 +218,9 @@ int main(int argc, char *argv[])
 
         CLI11_PARSE(app, argc, argv)
 
+        // TODO: we should let the user select 1 or 3 output channels
+        layer_sizes.push_back(3);
+
         std::cout << "Input: \"" << input_file_name << "\"\n"
                   << "Output: \"" << output_file_name << "\"\n"
                   << "Epochs: " << num_epochs << '\n'
@@ -225,7 +229,7 @@ int main(int argc, char *argv[])
         {
             std::cout << size << ' ';
         }
-        std::cout << "3\n";
+        std::cout << '\n';
 
         const auto dataset =
             load_dataset(input_file_name.c_str(), layer_sizes.front());

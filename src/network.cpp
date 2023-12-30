@@ -6,7 +6,8 @@
 namespace
 {
 
-inline void layer_init_zero(Layer &layer, int size, int input_size)
+inline void
+layer_init_zero(Layer &layer, Eigen::Index size, Eigen::Index input_size)
 {
     layer.weights.setZero(size, input_size);
     layer.biases.setZero(size);
@@ -15,8 +16,8 @@ inline void layer_init_zero(Layer &layer, int size, int input_size)
 }
 
 inline void layer_init_leaky_relu(Layer &layer,
-                                  int size,
-                                  int input_size,
+                                  Eigen::Index size,
+                                  Eigen::Index input_size,
                                   std::minstd_rand &rng)
 {
     layer_init_zero(layer, size, input_size);
@@ -28,8 +29,8 @@ inline void layer_init_leaky_relu(Layer &layer,
 }
 
 inline void layer_init_sigmoid(Layer &layer,
-                               int size,
-                               int input_size,
+                               Eigen::Index size,
+                               Eigen::Index input_size,
                                std::minstd_rand &rng)
 {
     layer_init_zero(layer, size, input_size);
@@ -90,21 +91,19 @@ inline void network_update_deltas(std::vector<Layer> &layers,
 } // namespace
 
 void network_init(std::vector<Layer> &layers,
-                  const std::vector<unsigned int> &sizes)
+                  const std::vector<Eigen::Index> &sizes)
 {
-    layers.resize(sizes.size());
+    layers.resize(sizes.size() - 1);
 
     std::random_device rd {};
     std::minstd_rand rng(rd());
 
-    for (std::size_t i {0}; i < sizes.size() - 1; ++i)
+    for (std::size_t i {0}; i < sizes.size() - 2; ++i)
     {
-        layer_init_leaky_relu(layers[i],
-                              static_cast<int>(sizes[i + 1]),
-                              static_cast<int>(sizes[i]),
-                              rng);
+        layer_init_leaky_relu(layers[i], sizes[i + 1], sizes[i], rng);
     }
-    layer_init_sigmoid(layers.back(), 3, static_cast<int>(sizes.back()), rng);
+    layer_init_sigmoid(
+        layers.back(), sizes.back(), sizes[sizes.size() - 2], rng);
 }
 
 void network_predict(std::vector<Layer> &layers, const Eigen::VectorXf &input)

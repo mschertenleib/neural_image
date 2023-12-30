@@ -14,7 +14,7 @@ struct Layer
 };
 
 void network_init(std::vector<Layer> &layers,
-                  const std::vector<unsigned int> &sizes);
+                  const std::vector<Eigen::Index> &sizes);
 
 void network_predict(std::vector<Layer> &layers, const Eigen::VectorXf &input);
 
