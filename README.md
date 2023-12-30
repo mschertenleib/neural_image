@@ -7,9 +7,11 @@ the network to learn high-frequency details much more easily.
 
 ## Example
 
-The output image was obtained using 128 input Fourier features, 3
-leaky ReLU hidden layers of 128 neurons each, and a sigmoid output layer. The
-network was trained using stochastic gradient descent for 100 epochs.
+The output image was obtained using 256 input Fourier features, 4 leaky ReLU
+hidden layers of sizes {512, 512, 128, 128}, and a sigmoid 3-channel output
+layer.
+The network was trained using stochastic gradient descent for 100 epochs with a
+learning rate of 0.01.
 
 ![Input](input.png)
 ![Output](output.png)
@@ -28,10 +30,9 @@ cmake --build build --target neural_image
 
 ## External libraries
 
-- [Eigen](https://github.com/libeigen/eigen)
-- [stb_image](https://github.com/nothings/stb)
-- [stb_image_write](https://github.com/nothings/stb)
-- [CLI11](https://github.com/CLIUtils/CLI11)
+- [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) for matrix/vector operations
+- [stb_image and stb_image_write](https://github.com/nothings/stb) for image reading/writing
+- [CLI11](https://github.com/CLIUtils/CLI11) for command-line parsing
 
 ## Inspiration & References
 

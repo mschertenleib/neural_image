@@ -31,7 +31,7 @@ struct Network
     Layer<3, Eigen::Dynamic, Activation::sigmoid> output_layer;
 };
 
-void network_init(Network &network, const std::vector<int> &sizes);
+void network_init(Network &network, const std::vector<unsigned int> &sizes);
 
 void network_predict(Network &network, const Network::Input &input);
 

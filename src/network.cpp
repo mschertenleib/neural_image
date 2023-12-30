@@ -136,7 +136,7 @@ void network_update_deltas(Network &network, const Network::Output &output)
 
 } // namespace
 
-void network_init(Network &network, const std::vector<int> &sizes)
+void network_init(Network &network, const std::vector<unsigned int> &sizes)
 {
     assert(sizes.size() >= 2);
 
@@ -148,9 +148,12 @@ void network_init(Network &network, const std::vector<int> &sizes)
 
     for (std::size_t i {0}; i < num_hidden_layers; ++i)
     {
-        layer_init(network.hidden_layers[i], sizes[i + 1], sizes[i], rng);
+        layer_init(network.hidden_layers[i],
+                   static_cast<int>(sizes[i + 1]),
+                   static_cast<int>(sizes[i]),
+                   rng);
     }
-    layer_init(network.output_layer, 3, sizes.back(), rng);
+    layer_init(network.output_layer, 3, static_cast<int>(sizes.back()), rng);
 }
 
 void network_predict(Network &network, const Network::Input &input)
