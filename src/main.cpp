@@ -135,7 +135,7 @@ struct Dataset
     return dataset;
 }
 
-void store_image(Network &network,
+void store_image(std::vector<Layer> &layers,
                  const Dataset &dataset,
                  const char *file_name)
 {
@@ -157,20 +157,20 @@ void store_image(Network &network,
             // training, we really should store them somewhere and not call this
             // function again
             const auto input = get_fourier_features_positional_encoding(
-                network.layers.front().weights.cols(),
+                layers.front().weights.cols(),
                 std::max(dataset.image_width, dataset.image_height),
                 x,
                 y);
 
-            network_predict(network, input);
+            network_predict(layers, input);
 
             const auto pixel_index = i * dataset.image_width + j;
             pixel_data[pixel_index * 4 + 0] =
-                float_to_u8(network.layers.back().activations(0));
+                float_to_u8(layers.back().activations(0));
             pixel_data[pixel_index * 4 + 1] =
-                float_to_u8(network.layers.back().activations(1));
+                float_to_u8(layers.back().activations(1));
             pixel_data[pixel_index * 4 + 2] =
-                float_to_u8(network.layers.back().activations(2));
+                float_to_u8(layers.back().activations(2));
             pixel_data[pixel_index * 4 + 3] = 255;
         }
     }
@@ -230,8 +230,8 @@ int main(int argc, char *argv[])
         const auto dataset =
             load_dataset(input_file_name.c_str(), layer_sizes.front());
 
-        Network network {};
-        network_init(network, layer_sizes);
+        std::vector<Layer> layers;
+        network_init(layers, layer_sizes);
 
         Eigen::internal::set_is_malloc_allowed(false);
 
@@ -240,8 +240,8 @@ int main(int argc, char *argv[])
             std::cout << "Epoch " << epoch << '\n';
             for (const auto &training_pair : dataset.training_pairs)
             {
-                network_predict(network, training_pair.input);
-                network_update_weights(network,
+                network_predict(layers, training_pair.input);
+                network_update_weights(layers,
                                        training_pair.input,
                                        training_pair.output,
                                        learning_rate);
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
         // store_image()
         Eigen::internal::set_is_malloc_allowed(true);
 
-        store_image(network, dataset, output_file_name.c_str());
+        store_image(layers, dataset, output_file_name.c_str());
 
         return EXIT_SUCCESS;
     }

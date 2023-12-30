@@ -73,66 +73,61 @@ inline void layer_update_weights(Layer &layer,
     layer.biases.noalias() -= learning_rate * layer.deltas;
 }
 
-inline void network_update_deltas(Network &network,
+inline void network_update_deltas(std::vector<Layer> &layers,
                                   const Eigen::VectorXf &output)
 {
-    network.layers.back().deltas.array() =
-        (network.layers.back().activations - output).array() *
-        network.layers.back().activations.array() *
-        (1.0f - network.layers.back().activations.array());
+    layers.back().deltas.array() =
+        (layers.back().activations - output).array() *
+        layers.back().activations.array() *
+        (1.0f - layers.back().activations.array());
 
-    for (std::size_t i {network.layers.size() - 1}; i > 0; --i)
+    for (std::size_t i {layers.size() - 1}; i > 0; --i)
     {
-        layer_update_deltas_leaky_relu(network.layers[i - 1],
-                                       network.layers[i]);
+        layer_update_deltas_leaky_relu(layers[i - 1], layers[i]);
     }
 }
 
 } // namespace
 
-void network_init(Network &network, const std::vector<unsigned int> &sizes)
+void network_init(std::vector<Layer> &layers,
+                  const std::vector<unsigned int> &sizes)
 {
-    network.layers.resize(sizes.size());
+    layers.resize(sizes.size());
 
     std::random_device rd {};
     std::minstd_rand rng(rd());
 
     for (std::size_t i {0}; i < sizes.size() - 1; ++i)
     {
-        layer_init_leaky_relu(network.layers[i],
+        layer_init_leaky_relu(layers[i],
                               static_cast<int>(sizes[i + 1]),
                               static_cast<int>(sizes[i]),
                               rng);
     }
-    layer_init_sigmoid(
-        network.layers.back(), 3, static_cast<int>(sizes.back()), rng);
+    layer_init_sigmoid(layers.back(), 3, static_cast<int>(sizes.back()), rng);
 }
 
-void network_predict(Network &network, const Eigen::VectorXf &input)
+void network_predict(std::vector<Layer> &layers, const Eigen::VectorXf &input)
 {
-    layer_predict_leaky_relu(network.layers.front(), input);
-    for (std::size_t i {1}; i < network.layers.size() - 1; ++i)
+    layer_predict_leaky_relu(layers.front(), input);
+    for (std::size_t i {1}; i < layers.size() - 1; ++i)
     {
-        layer_predict_leaky_relu(network.layers[i],
-                                 network.layers[i - 1].activations);
+        layer_predict_leaky_relu(layers[i], layers[i - 1].activations);
     }
-    layer_predict_sigmoid(
-        network.layers.back(),
-        network.layers[network.layers.size() - 2].activations);
+    layer_predict_sigmoid(layers.back(), layers[layers.size() - 2].activations);
 }
 
-void network_update_weights(Network &network,
+void network_update_weights(std::vector<Layer> &layers,
                             const Eigen::VectorXf &input,
                             const Eigen::VectorXf &output,
                             float learning_rate)
 {
-    network_update_deltas(network, output);
+    network_update_deltas(layers, output);
 
-    for (std::size_t i {network.layers.size() - 1}; i > 0; --i)
+    for (std::size_t i {layers.size() - 1}; i > 0; --i)
     {
-        layer_update_weights(network.layers[i],
-                             network.layers[i - 1].activations,
-                             learning_rate);
+        layer_update_weights(
+            layers[i], layers[i - 1].activations, learning_rate);
     }
-    layer_update_weights(network.layers.front(), input, learning_rate);
+    layer_update_weights(layers.front(), input, learning_rate);
 }

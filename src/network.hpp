@@ -13,16 +13,12 @@ struct Layer
     Eigen::VectorXf deltas;
 };
 
-struct Network
-{
-    std::vector<Layer> layers;
-};
+void network_init(std::vector<Layer> &layers,
+                  const std::vector<unsigned int> &sizes);
 
-void network_init(Network &network, const std::vector<unsigned int> &sizes);
+void network_predict(std::vector<Layer> &layers, const Eigen::VectorXf &input);
 
-void network_predict(Network &network, const Eigen::VectorXf &input);
-
-void network_update_weights(Network &network,
+void network_update_weights(std::vector<Layer> &layers,
                             const Eigen::VectorXf &input,
                             const Eigen::VectorXf &output,
                             float learning_rate);
