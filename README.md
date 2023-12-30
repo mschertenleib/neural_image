@@ -30,8 +30,10 @@ cmake --build build --target neural_image
 
 ## External libraries
 
-- [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) for matrix/vector operations
-- [stb_image and stb_image_write](https://github.com/nothings/stb) for image reading/writing
+- [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) for
+  matrix/vector operations
+- [stb_image and stb_image_write](https://github.com/nothings/stb) for image
+  reading/writing
 - [CLI11](https://github.com/CLIUtils/CLI11) for command-line parsing
 
 ## Inspiration & References

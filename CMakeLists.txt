@@ -40,10 +40,15 @@ CPMAddPackage(
         DOWNLOAD_ONLY YES
 )
 
+
+# TODO: we are not building any separate libraries, so these could just be target_compile_options
+
 set(is_gnu_or_clang "$<CXX_COMPILER_ID:GNU,Clang,AppleClang>")
+set(is_msvc "$<CXX_COMPILER_ID:MSVC>")
 add_compile_options(
         $<${is_gnu_or_clang}:-march=native>
         $<${is_gnu_or_clang}:-ffast-math>
+        $<${is_msvc}:/fp:fast>
 )
 add_compile_definitions(
         EIGEN_RUNTIME_NO_MALLOC
@@ -92,6 +97,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
     target_compile_options(neural_image PRIVATE ${CLANG_WARNINGS})
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     target_compile_options(neural_image PRIVATE ${GCC_WARNINGS})
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+    target_compile_options(neural_image PRIVATE /W4)
 else ()
     message(WARNING "No warnings set for compiler '${CMAKE_CXX_COMPILER_ID}'")
 endif ()

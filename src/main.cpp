@@ -25,22 +25,14 @@ namespace
 struct Training_pair
 {
     Eigen::VectorXf input;
-    Eigen::Vector3f output;
+    Eigen::VectorXf output;
 };
 
-struct Training_dataset
+struct Dataset
 {
     std::size_t image_width;
     std::size_t image_height;
     std::vector<Training_pair> training_pairs;
-};
-
-struct Free_image
-{
-    void operator()(stbi_uc *pointer) const
-    {
-        stbi_image_free(pointer);
-    }
 };
 
 [[nodiscard]] constexpr float u8_to_float(std::uint8_t u)
@@ -73,25 +65,31 @@ struct Free_image
     return result;
 }
 
-[[nodiscard]] Training_dataset load_dataset(const char *file_name,
-                                            Eigen::Index input_size)
+[[nodiscard]] Dataset load_dataset(const char *file_name,
+                                   Eigen::Index input_size)
 {
-    std::cout << "Loading image \"" << file_name << "\"\n";
-
     int width {};
     int height {};
     int channels_in_file {};
     constexpr int desired_channels {3};
-    std::unique_ptr<stbi_uc[], Free_image> image {stbi_load(
-        file_name, &width, &height, &channels_in_file, desired_channels)};
+
+    struct image_deleter
+    {
+        void operator()(stbi_uc *pointer)
+        {
+            stbi_image_free(pointer);
+        }
+    };
+    std::unique_ptr<stbi_uc[], image_deleter> image(stbi_load(
+        file_name, &width, &height, &channels_in_file, desired_channels));
     if (!image)
     {
         throw std::runtime_error(stbi_failure_reason());
     }
 
-    Training_dataset dataset {.image_width = static_cast<std::size_t>(width),
-                              .image_height = static_cast<std::size_t>(height),
-                              .training_pairs = {}};
+    Dataset dataset {.image_width = static_cast<std::size_t>(width),
+                     .image_height = static_cast<std::size_t>(height),
+                     .training_pairs = {}};
     dataset.training_pairs.resize(dataset.image_width * dataset.image_height);
 
     std::random_device rd {};
@@ -127,9 +125,10 @@ struct Free_image
                          .cos(),
                 (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
 #endif
-            output = {u8_to_float(image[pixel_index * 3 + 0]),
-                      u8_to_float(image[pixel_index * 3 + 1]),
-                      u8_to_float(image[pixel_index * 3 + 2])};
+            output.resize(3);
+            output << u8_to_float(image[pixel_index * 3 + 0]),
+                u8_to_float(image[pixel_index * 3 + 1]),
+                u8_to_float(image[pixel_index * 3 + 2]);
         }
     }
 
@@ -137,7 +136,7 @@ struct Free_image
 }
 
 void store_image(Network &network,
-                 const Training_dataset &dataset,
+                 const Dataset &dataset,
                  const char *file_name)
 {
     std::cout << "Storing image \"" << file_name << "\"\n";
@@ -158,7 +157,7 @@ void store_image(Network &network,
             // training, we really should store them somewhere and not call this
             // function again
             const auto input = get_fourier_features_positional_encoding(
-                network.hidden_layers.front().weights.cols(),
+                network.layers.front().weights.cols(),
                 std::max(dataset.image_width, dataset.image_height),
                 x,
                 y);
@@ -167,11 +166,11 @@ void store_image(Network &network,
 
             const auto pixel_index = i * dataset.image_width + j;
             pixel_data[pixel_index * 4 + 0] =
-                float_to_u8(network.output_layer.activations(0));
+                float_to_u8(network.layers.back().activations(0));
             pixel_data[pixel_index * 4 + 1] =
-                float_to_u8(network.output_layer.activations(1));
+                float_to_u8(network.layers.back().activations(1));
             pixel_data[pixel_index * 4 + 2] =
-                float_to_u8(network.output_layer.activations(2));
+                float_to_u8(network.layers.back().activations(2));
             pixel_data[pixel_index * 4 + 3] = 255;
         }
     }
@@ -233,7 +232,6 @@ int main(int argc, char *argv[])
 
         Network network {};
         network_init(network, layer_sizes);
-        Network::Input input(layer_sizes.front());
 
         Eigen::internal::set_is_malloc_allowed(false);
 
@@ -242,10 +240,11 @@ int main(int argc, char *argv[])
             std::cout << "Epoch " << epoch << '\n';
             for (const auto &training_pair : dataset.training_pairs)
             {
-                input << training_pair.input;
-                network_predict(network, input);
-                network_update_weights(
-                    network, input, training_pair.output, learning_rate);
+                network_predict(network, training_pair.input);
+                network_update_weights(network,
+                                       training_pair.input,
+                                       training_pair.output,
+                                       learning_rate);
             }
         }
 
