@@ -41,34 +41,25 @@ CPMAddPackage(
 )
 
 
-# TODO: we are not building any separate libraries, so these could just be target_compile_options
-
-set(is_gnu_or_clang "$<CXX_COMPILER_ID:GNU,Clang,AppleClang>")
-set(is_msvc "$<CXX_COMPILER_ID:MSVC>")
-add_compile_options(
-        $<${is_gnu_or_clang}:-march=native>
-        $<${is_gnu_or_clang}:-ffast-math>
-        $<${is_msvc}:/fp:fast>
-)
-add_compile_definitions(
-        EIGEN_RUNTIME_NO_MALLOC
-        EIGEN_NO_AUTOMATIC_RESIZING
-)
-
-
 add_executable(neural_image
         src/main.cpp
         src/network.cpp src/network.hpp
 )
-target_compile_features(neural_image PRIVATE cxx_std_20)
 target_include_directories(neural_image SYSTEM PRIVATE
         ${eigen_SOURCE_DIR}
         ${stb_SOURCE_DIR}
         ${CLI11_SOURCE_DIR}/include
 )
+target_compile_features(neural_image PRIVATE cxx_std_20)
+target_compile_definitions(neural_image PRIVATE
+        $<$<CONFIG:Debug>:EIGEN_RUNTIME_NO_MALLOC>
+        EIGEN_NO_AUTOMATIC_RESIZING
+)
 
 
-set(CLANG_WARNINGS
+set(CLANG_OPTIONS
+        -march=native
+        -ffast-math
         -Wfatal-errors
         -Wall
         -Wextra
@@ -84,8 +75,8 @@ set(CLANG_WARNINGS
         -Wnull-dereference
         -Wdouble-promotion)
 
-set(GCC_WARNINGS
-        ${CLANG_WARNINGS}
+set(GCC_OPTIONS
+        ${CLANG_OPTIONS}
         -Wmisleading-indentation
         -Wduplicated-cond
         -Wduplicated-branches
@@ -94,11 +85,11 @@ set(GCC_WARNINGS
         -Wswitch-enum)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES ".*Clang")
-    target_compile_options(neural_image PRIVATE ${CLANG_WARNINGS})
+    target_compile_options(neural_image PRIVATE ${CLANG_OPTIONS})
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(neural_image PRIVATE ${GCC_WARNINGS})
+    target_compile_options(neural_image PRIVATE ${GCC_OPTIONS})
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    target_compile_options(neural_image PRIVATE /W4)
+    target_compile_options(neural_image PRIVATE /W4 /fp:fast)
 else ()
     message(WARNING "No warnings set for compiler '${CMAKE_CXX_COMPILER_ID}'")
 endif ()

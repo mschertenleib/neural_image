@@ -218,8 +218,10 @@ int main(int argc, char *argv[])
         std::vector<Layer> layers;
         network_init(layers, layer_sizes);
 
+#ifndef NDEBUG
         Eigen::internal::set_is_malloc_allowed(false);
-
+#endif
+        
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
             std::cout << "Epoch " << epoch << '\n';
