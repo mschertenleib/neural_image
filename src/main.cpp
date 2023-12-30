@@ -46,14 +46,14 @@ struct Dataset
     return static_cast<std::uint8_t>(std::clamp(f, 0.0f, 1.0f) * 255.0f);
 }
 
-[[nodiscard]] Eigen::VectorXf get_fourier_features_positional_encoding(
-    Eigen::Index input_size, std::size_t max_image_dimension, float x, float y)
+void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
+                                              std::size_t max_image_dimension,
+                                              float x,
+                                              float y)
 {
-    Eigen::VectorXf result(input_size);
-
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
     const auto max_frequency = static_cast<float>(max_image_dimension) * 0.5f;
-    const Eigen::Index m {input_size / 4};
+    const Eigen::Index m {result.size() / 4};
     for (Eigen::Index j {0}; j < m; ++j)
     {
         const auto frequency = std::pow(
@@ -63,7 +63,6 @@ struct Dataset
         result(4 * j + 2) = std::sin(two_pi * frequency * x);
         result(4 * j + 3) = std::sin(two_pi * frequency * y);
     }
-    return result;
 }
 
 [[nodiscard]] Dataset load_dataset(const char *file_name,
@@ -115,12 +114,14 @@ struct Dataset
             const auto y = static_cast<float>(i) /
                            static_cast<float>(dataset.image_height - 1);
 #if 1
-            input = get_fourier_features_positional_encoding(
-                input_size,
+            input.resize(input_size);
+            get_fourier_features_positional_encoding(
+                input,
                 std::max(dataset.image_width, dataset.image_height),
                 x,
                 y);
 #else
+            input.resize(input_size);
             input << (two_pi * frequencies * Eigen::Vector2f {x, y})
                          .array()
                          .cos(),
@@ -143,12 +144,27 @@ void store_image(std::vector<Layer> &layers,
     std::vector<std::uint8_t> pixel_data(dataset.image_width *
                                          dataset.image_height * 4);
 
+    const auto input_size = layers.front().weights.cols();
+    Eigen::VectorXf input(input_size);
+
     for (std::size_t i {0}; i < dataset.image_height; ++i)
     {
         for (std::size_t j {0}; j < dataset.image_width; ++j)
         {
+            const auto x = static_cast<float>(j) /
+                           static_cast<float>(dataset.image_width - 1);
+            const auto y = static_cast<float>(i) /
+                           static_cast<float>(dataset.image_height - 1);
+
+            get_fourier_features_positional_encoding(
+                input,
+                std::max(dataset.image_width, dataset.image_height),
+                x,
+                y);
+
+            network_predict(layers, input);
+
             const auto index = i * dataset.image_width + j;
-            network_predict(layers, dataset.training_pairs[index].input);
             const auto &output = layers.back().activations;
             pixel_data[index * 4 + 0] = float_to_u8(output(0));
             pixel_data[index * 4 + 1] = float_to_u8(output(1));
@@ -221,7 +237,7 @@ int main(int argc, char *argv[])
 #ifndef NDEBUG
         Eigen::internal::set_is_malloc_allowed(false);
 #endif
-        
+
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
             std::cout << "Epoch " << epoch << '\n';
@@ -234,6 +250,10 @@ int main(int argc, char *argv[])
                                        learning_rate);
             }
         }
+
+#ifndef NDEBUG
+        Eigen::internal::set_is_malloc_allowed(true);
+#endif
 
         store_image(layers, dataset, output_file_name.c_str());
 
