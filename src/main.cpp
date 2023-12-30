@@ -140,8 +140,6 @@ void store_image(std::vector<Layer> &layers,
                  const Dataset &dataset,
                  const char *file_name)
 {
-    std::cout << "Storing image \"" << file_name << "\"\n";
-
     std::vector<std::uint8_t> pixel_data(dataset.image_width *
                                          dataset.image_height * 4);
 
@@ -149,30 +147,13 @@ void store_image(std::vector<Layer> &layers,
     {
         for (std::size_t j {0}; j < dataset.image_width; ++j)
         {
-            const auto x = static_cast<float>(j) /
-                           static_cast<float>(dataset.image_width - 1);
-            const auto y = static_cast<float>(i) /
-                           static_cast<float>(dataset.image_height - 1);
-
-            // FIXME: these have to be the same features (frequencies) used for
-            // training, we really should store them somewhere and not call this
-            // function again
-            const auto input = get_fourier_features_positional_encoding(
-                layers.front().weights.cols(),
-                std::max(dataset.image_width, dataset.image_height),
-                x,
-                y);
-
-            network_predict(layers, input);
-
-            const auto pixel_index = i * dataset.image_width + j;
-            pixel_data[pixel_index * 4 + 0] =
-                float_to_u8(layers.back().activations(0));
-            pixel_data[pixel_index * 4 + 1] =
-                float_to_u8(layers.back().activations(1));
-            pixel_data[pixel_index * 4 + 2] =
-                float_to_u8(layers.back().activations(2));
-            pixel_data[pixel_index * 4 + 3] = 255;
+            const auto index = i * dataset.image_width + j;
+            network_predict(layers, dataset.training_pairs[index].input);
+            const auto &output = layers.back().activations;
+            pixel_data[index * 4 + 0] = float_to_u8(output(0));
+            pixel_data[index * 4 + 1] = float_to_u8(output(1));
+            pixel_data[index * 4 + 2] = float_to_u8(output(2));
+            pixel_data[index * 4 + 3] = 255;
         }
     }
 
@@ -224,10 +205,10 @@ int main(int argc, char *argv[])
         std::cout << "Input: \"" << input_file_name << "\"\n"
                   << "Output: \"" << output_file_name << "\"\n"
                   << "Epochs: " << num_epochs << '\n'
-                  << "Network layout: ";
+                  << "Network layout:";
         for (const auto size : layer_sizes)
         {
-            std::cout << size << ' ';
+            std::cout << ' ' << size;
         }
         std::cout << '\n';
 
@@ -251,10 +232,6 @@ int main(int argc, char *argv[])
                                        learning_rate);
             }
         }
-
-        // FIXME: ideally there should be no allocation from Eigen in
-        // store_image()
-        Eigen::internal::set_is_malloc_allowed(true);
 
         store_image(layers, dataset, output_file_name.c_str());
 

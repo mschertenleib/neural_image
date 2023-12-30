@@ -1,7 +1,7 @@
 #ifndef NETWORK_HPP
 #define NETWORK_HPP
 
-#include <Eigen/Dense>
+#include <Eigen/Core>
 
 #include <vector>
 
