@@ -35,8 +35,8 @@ CPMAddPackage(
         DOWNLOAD_ONLY YES
 )
 CPMAddPackage(
-        GITHUB_REPOSITORY muellan/clipp
-        GIT_TAG v1.2.3
+        GITHUB_REPOSITORY bfgroup/Lyra
+        GIT_TAG 1.6.1
         DOWNLOAD_ONLY YES
 )
 
@@ -48,7 +48,7 @@ add_executable(neural_image
 target_include_directories(neural_image SYSTEM PRIVATE
         ${eigen_SOURCE_DIR}
         ${stb_SOURCE_DIR}
-        ${clipp_SOURCE_DIR}/include
+        ${Lyra_SOURCE_DIR}/include
 )
 target_compile_features(neural_image PRIVATE cxx_std_20)
 target_compile_definitions(neural_image PRIVATE

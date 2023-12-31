@@ -7,7 +7,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#include "clipp.h"
+#include <lyra/lyra.hpp>
 
 #include <algorithm>
 #include <filesystem>
@@ -186,37 +186,49 @@ int main(int argc, char *argv[])
 {
     try
     {
+        bool show_help {false};
         std::string input_file_name {};
         std::string output_file_name {"out.png"};
         unsigned int num_epochs {1};
         std::vector<Eigen::Index> layer_sizes {128, 128, 128};
         float learning_rate {0.01f};
 
-        auto cli =
-            (clipp::value("input", input_file_name).doc("The input image"),
-             (clipp::option("-o", "--output") &
-              clipp::value("output", output_file_name))
-                 .doc("The output image (PNG)"),
-             (clipp::option("-e", "--epochs") &
-              clipp::value("epochs", num_epochs))
-                 .doc("Number of training epochs"),
-             (clipp::option("-a", "--arch") &
-              clipp::values("layer_sizes", layer_sizes))
-                 .doc("Sizes of the network layers (includes the input size "
-                      "but excludes the output size)"),
-             (clipp::option("-l", "--learning_rate") &
-              clipp::value("learning_rate", learning_rate))
-                 .doc("Learning rate"));
+        auto cli = lyra::cli();
+        cli.add_argument(lyra::help(show_help).description(""));
+        cli.add_argument(lyra::arg(input_file_name, "input")
+                             .required()
+                             .help("The input image"));
+        cli.add_argument(lyra::opt(output_file_name, "output")
+                             .name("-o")
+                             .name("--output")
+                             .help("The output image (PNG)"));
+        cli.add_argument(lyra::opt(num_epochs, "epochs")
+                             .name("-e")
+                             .name("--epochs")
+                             .help("Number of training epochs"));
+        cli.add_argument(lyra::opt(layer_sizes, "layer_sizes ...")
+                             .name("-a")
+                             .name("--arch")
+                             .help("Sizes of the network layers (includes the "
+                                   "input size but excludes the output size)"));
+        cli.add_argument(lyra::opt(learning_rate, "learning_rate")
+                             .name("-l")
+                             .name("--learning-rate")
+                             .help("Learning rate"));
 
-        if (clipp::parse(argc, argv, cli))
+        auto result = cli.parse({argc, argv});
+        if (!result)
         {
-            std::cout << clipp::make_man_page(
-                cli, std::filesystem::path(argv[0]).filename().string());
+            std::cerr << "Error in command line: " << result.message()
+                      << std::endl;
+            std::cerr << cli << "\n";
+            return EXIT_FAILURE;
         }
-        else
+
+        if (show_help)
         {
-            std::cerr << clipp::usage_lines(
-                cli, std::filesystem::path(argv[0]).filename().string());
+            std::cout << cli << "\n";
+            return EXIT_SUCCESS;
         }
 
         // TODO: we should let the user select 1 or 3 output channels
