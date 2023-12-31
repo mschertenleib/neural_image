@@ -13,8 +13,8 @@ layer.
 The network was trained using stochastic gradient descent for 100 epochs with a
 learning rate of 0.01.
 
-![Input](input.png)
-![Output](output.png)
+![Input](images/input_color.png)
+![Output](images/output_color.png)
 
 ## Build
 

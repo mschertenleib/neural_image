@@ -22,18 +22,12 @@
 namespace
 {
 
-// FIXME: these really should be matrices
-struct Training_pair
-{
-    Eigen::VectorXf input;
-    Eigen::VectorXf output;
-};
-
 struct Dataset
 {
-    std::size_t image_width;
-    std::size_t image_height;
-    std::vector<Training_pair> training_pairs;
+    Eigen::MatrixXf inputs;
+    Eigen::MatrixXf outputs;
+    int width;
+    int height;
 };
 
 [[nodiscard]] constexpr float u8_to_float(std::uint8_t u) noexcept
@@ -47,7 +41,7 @@ struct Dataset
 }
 
 void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
-                                              std::size_t max_image_dimension,
+                                              Eigen::Index max_image_dimension,
                                               float x,
                                               float y)
 {
@@ -63,23 +57,6 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
         result(4 * j + 2) = std::sin(two_pi * frequency * x);
         result(4 * j + 3) = std::sin(two_pi * frequency * y);
     }
-}
-
-[[nodiscard]] Eigen::PermutationMatrix<Eigen::Dynamic>
-make_random_permutation(Eigen::Index size, std::minstd_rand &rng)
-{
-    Eigen::PermutationMatrix<Eigen::Dynamic> perm(size);
-    perm.setIdentity();
-    std::shuffle(perm.indices().data(),
-                 perm.indices().data() + perm.indices().size(),
-                 rng);
-    return perm;
-}
-
-void permute_columns(Eigen::MatrixXf &m, std::minstd_rand &rng)
-{
-    const auto perm = make_random_permutation(m.cols(), rng);
-    m *= perm;
 }
 
 [[nodiscard]] Dataset load_dataset(const char *file_name,
@@ -104,50 +81,51 @@ void permute_columns(Eigen::MatrixXf &m, std::minstd_rand &rng)
         throw std::runtime_error(stbi_failure_reason());
     }
 
-    Dataset dataset {.image_width = static_cast<std::size_t>(width),
-                     .image_height = static_cast<std::size_t>(height),
-                     .training_pairs = {}};
-    dataset.training_pairs.resize(dataset.image_width * dataset.image_height);
+    Dataset dataset {
+        .inputs = {}, .outputs = {}, .width = width, .height = height};
+    dataset.inputs.setZero(input_size, width * height);
+    constexpr Eigen::Index output_size {3};
+    dataset.outputs.setZero(output_size, width * height);
 
     std::random_device rd {};
     std::minstd_rand rng(rd());
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
-    const auto std_dev = static_cast<float>(std::max(dataset.image_width,
-                                                     dataset.image_height)) *
-                         0.01f;
+    const auto std_dev = static_cast<float>(std::max(width, height)) * 0.01f;
     std::normal_distribution<float> distribution(0.0f, std_dev);
     const auto generate_weight = [&](float) { return distribution(rng); };
     Eigen::MatrixX2f frequencies(input_size / 2, 2);
     frequencies = frequencies.unaryExpr(generate_weight);
 
-    for (std::size_t i {0}; i < dataset.image_height; ++i)
+    Eigen::VectorXf input(input_size);
+    Eigen::VectorXf output(output_size);
+
+    for (Eigen::Index i {0}; i < height; ++i)
     {
-        for (std::size_t j {0}; j < dataset.image_width; ++j)
+        for (Eigen::Index j {0}; j < width; ++j)
         {
-            const auto pixel_index = i * dataset.image_width + j;
-            auto &[input, output] = dataset.training_pairs[pixel_index];
-            const auto x = static_cast<float>(j) /
-                           static_cast<float>(dataset.image_width - 1);
-            const auto y = static_cast<float>(i) /
-                           static_cast<float>(dataset.image_height - 1);
+            const auto pixel_index = i * width + j;
+            const auto x =
+                static_cast<float>(j) / static_cast<float>(width - 1);
+            const auto y =
+                static_cast<float>(i) / static_cast<float>(height - 1);
 #if 1
-            input.resize(input_size);
             get_fourier_features_positional_encoding(
-                input,
-                std::max(dataset.image_width, dataset.image_height),
-                x,
-                y);
+                input, std::max(width, height), x, y);
 #else
-            input.resize(input_size);
             input << (two_pi * frequencies * Eigen::Vector2f {x, y})
                          .array()
                          .cos(),
                 (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
 #endif
-            output.resize(3);
-            output << u8_to_float(image[pixel_index * 3 + 0]),
-                u8_to_float(image[pixel_index * 3 + 1]),
-                u8_to_float(image[pixel_index * 3 + 2]);
+            output << u8_to_float(
+                image[static_cast<std::size_t>(pixel_index * 3 + 0)]),
+                u8_to_float(
+                    image[static_cast<std::size_t>(pixel_index * 3 + 1)]),
+                u8_to_float(
+                    image[static_cast<std::size_t>(pixel_index * 3 + 2)]);
+
+            dataset.inputs.col(pixel_index) = input;
+            dataset.outputs.col(pixel_index) = output;
         }
     }
 
@@ -156,33 +134,31 @@ void permute_columns(Eigen::MatrixXf &m, std::minstd_rand &rng)
 
 void store_image(std::vector<Layer> &layers,
                  const Dataset &dataset,
+                 std::size_t width,
+                 std::size_t height,
                  const char *file_name)
 {
-    std::vector<std::uint8_t> pixel_data(dataset.image_width *
-                                         dataset.image_height * 4);
+    std::vector<std::uint8_t> pixel_data(width * height * 4);
 
     const auto input_size = layers.front().weights.cols();
     Eigen::VectorXf input(input_size);
 
-    for (std::size_t i {0}; i < dataset.image_height; ++i)
+    for (std::size_t i {0}; i < height; ++i)
     {
-        for (std::size_t j {0}; j < dataset.image_width; ++j)
+        for (std::size_t j {0}; j < width; ++j)
         {
             // FIXME: x and y should be in the range [-1, 1]
-            const auto x = static_cast<float>(j) /
-                           static_cast<float>(dataset.image_width - 1);
-            const auto y = static_cast<float>(i) /
-                           static_cast<float>(dataset.image_height - 1);
+            const auto x =
+                static_cast<float>(j) / static_cast<float>(width - 1);
+            const auto y =
+                static_cast<float>(i) / static_cast<float>(height - 1);
 
             get_fourier_features_positional_encoding(
-                input,
-                std::max(dataset.image_width, dataset.image_height),
-                x,
-                y);
+                input, std::max(width, height), x, y);
 
             forward_pass(layers, input);
 
-            const auto index = i * dataset.image_width + j;
+            const auto index = i * width + j;
             const auto &output = layers.back().activations;
             pixel_data[index * 4 + 0] = float_to_u8(output(0));
             pixel_data[index * 4 + 1] = float_to_u8(output(1));
@@ -191,13 +167,12 @@ void store_image(std::vector<Layer> &layers,
         }
     }
 
-    const auto write_result =
-        stbi_write_png(file_name,
-                       static_cast<int>(dataset.image_width),
-                       static_cast<int>(dataset.image_height),
-                       4,
-                       pixel_data.data(),
-                       static_cast<int>(dataset.image_width) * 4);
+    const auto write_result = stbi_write_png(file_name,
+                                             static_cast<int>(width),
+                                             static_cast<int>(height),
+                                             4,
+                                             pixel_data.data(),
+                                             static_cast<int>(width) * 4);
     if (write_result == 0)
     {
         throw std::runtime_error("Failed to store image");
@@ -210,8 +185,8 @@ int main(int argc, char *argv[])
 {
     try
     {
-        CLI::App app;
-        argv = app.ensure_utf8(argv);
+        CLI::App cli_app;
+        argv = cli_app.ensure_utf8(argv);
 
         std::string input_file_name {};
         std::string output_file_name {"out.png"};
@@ -219,19 +194,24 @@ int main(int argc, char *argv[])
         std::vector<Eigen::Index> layer_sizes {128, 128, 128};
         float learning_rate {0.01f};
 
-        app.add_option("input", input_file_name, "The input image")
+        cli_app.add_option("input", input_file_name, "The input image")
             ->required()
             ->check(CLI::ExistingFile);
-        app.add_option("-o,--output", output_file_name, "The output image")
+        cli_app
+            .add_option(
+                "-o,--output", output_file_name, "The output image (PNG)")
             ->capture_default_str();
-        app.add_option("-e,--epochs", num_epochs, "Number of training epochs")
+        cli_app
+            .add_option("-e,--epochs", num_epochs, "Number of training epochs")
             ->capture_default_str();
-        app.add_option("-a,--arch", layer_sizes, "Sizes of the network layers")
+        cli_app
+            .add_option("-a,--arch", layer_sizes, "Sizes of the network layers")
             ->capture_default_str();
-        app.add_option("-l,--learning-rate", learning_rate, "Learning rate")
+        cli_app
+            .add_option("-l,--learning-rate", learning_rate, "Learning rate")
             ->capture_default_str();
 
-        CLI11_PARSE(app, argc, argv)
+        CLI11_PARSE(cli_app, argc, argv)
 
         // TODO: we should let the user select 1 or 3 output channels
         layer_sizes.push_back(3);
@@ -249,8 +229,18 @@ int main(int argc, char *argv[])
         const auto dataset =
             load_dataset(input_file_name.c_str(), layer_sizes.front());
 
+        std::random_device rd;
+        std::minstd_rand rng(rd());
+        std::vector<Eigen::Index> indices(
+            static_cast<std::size_t>(dataset.width) *
+            static_cast<std::size_t>(dataset.height));
+        std::iota(indices.begin(), indices.end(), 0);
+
         std::vector<Layer> layers;
         network_init(layers, layer_sizes);
+
+        Eigen::VectorXf input(layer_sizes.front());
+        Eigen::VectorXf output(layer_sizes.back());
 
 #ifndef NDEBUG
         Eigen::internal::set_is_malloc_allowed(false);
@@ -259,13 +249,14 @@ int main(int argc, char *argv[])
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
             std::cout << "Epoch " << epoch << '\n';
-            for (const auto &training_pair : dataset.training_pairs)
+
+            std::shuffle(indices.begin(), indices.end(), rng);
+            for (const auto index : indices)
             {
-                forward_pass(layers, training_pair.input);
-                backward_pass(layers,
-                              training_pair.input,
-                              training_pair.output,
-                              learning_rate);
+                input << dataset.inputs.col(index);
+                output << dataset.outputs.col(index);
+                forward_pass(layers, input);
+                backward_pass(layers, input, output, learning_rate);
             }
         }
 
@@ -273,7 +264,11 @@ int main(int argc, char *argv[])
         Eigen::internal::set_is_malloc_allowed(true);
 #endif
 
-        store_image(layers, dataset, output_file_name.c_str());
+        store_image(layers,
+                    dataset,
+                    static_cast<std::size_t>(dataset.width),
+                    static_cast<std::size_t>(dataset.height),
+                    output_file_name.c_str());
 
         return EXIT_SUCCESS;
     }
