@@ -29,43 +29,9 @@ public:
     std::string make_option_opts(const CLI::Option *opt) const override
     {
         std::stringstream out;
-
         if (!opt->get_option_text().empty())
         {
             out << " " << opt->get_option_text();
-        }
-        else
-        {
-            if (opt->get_type_size() != 0)
-            {
-                if (!opt->get_type_name().empty())
-                    out << " " << get_label(opt->get_type_name());
-                if (!opt->get_default_str().empty())
-                    out << " [" << opt->get_default_str() << "] ";
-                if (opt->get_expected_max() ==
-                    CLI::detail::expected_max_vector_size)
-                    out << " ...";
-                else if (opt->get_expected_min() > 1)
-                    out << " x " << opt->get_expected();
-
-                if (opt->get_required())
-                    out << " " << get_label("REQUIRED");
-            }
-            if (!opt->get_envname().empty())
-                out << " (" << get_label("Env") << ":" << opt->get_envname()
-                    << ")";
-            if (!opt->get_needs().empty())
-            {
-                out << " " << get_label("Needs") << ":";
-                for (const CLI::Option *op : opt->get_needs())
-                    out << " " << op->get_name();
-            }
-            if (!opt->get_excludes().empty())
-            {
-                out << " " << get_label("Excludes") << ":";
-                for (const CLI::Option *op : opt->get_excludes())
-                    out << " " << op->get_name();
-            }
         }
         return out.str();
     }
@@ -243,22 +209,23 @@ int main(int argc, char *argv[])
         std::vector<Eigen::Index> layer_sizes {128, 128, 128};
         float learning_rate {0.01f};
 
-        cli_app.add_option("input", input_file_name, "The input image")
+        cli_app.add_option("<input>", input_file_name, "The input image")
+            ->option_text("")
             ->required()
             ->check(CLI::ExistingFile);
         cli_app
             .add_option(
                 "-o,--output", output_file_name, "The output image (PNG)")
-            ->capture_default_str();
+            ->option_text("<output>");
         cli_app
             .add_option("-e,--epochs", num_epochs, "Number of training epochs")
-            ->capture_default_str();
+            ->option_text("<epochs>");
         cli_app
             .add_option("-a,--arch",
                         layer_sizes,
                         "Sizes of the network layers (includes the input size "
                         "but excludes the output size)")
-            ->capture_default_str()
+            ->option_text("<sizes> ...")
             ->check(CLI::Range(Eigen::Index {1},
                                std::numeric_limits<Eigen::Index>::max()))
             ->check(CLI::Range(Eigen::Index {2},
@@ -266,7 +233,7 @@ int main(int argc, char *argv[])
                         .application_index(0));
         cli_app
             .add_option("-l,--learning-rate", learning_rate, "Learning rate")
-            ->capture_default_str();
+            ->option_text("<rate>");
 
         cli_app.formatter(std::make_shared<Custom_formatter>());
 
