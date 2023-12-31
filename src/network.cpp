@@ -106,7 +106,7 @@ void network_init(std::vector<Layer> &layers,
         layers.back(), sizes.back(), sizes[sizes.size() - 2], rng);
 }
 
-void network_predict(std::vector<Layer> &layers, const Eigen::VectorXf &input)
+void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input)
 {
     layer_predict_leaky_relu(layers.front(), input);
     for (std::size_t i {1}; i < layers.size() - 1; ++i)
@@ -116,7 +116,7 @@ void network_predict(std::vector<Layer> &layers, const Eigen::VectorXf &input)
     layer_predict_sigmoid(layers.back(), layers[layers.size() - 2].activations);
 }
 
-void network_update_weights(std::vector<Layer> &layers,
+void backward_pass(std::vector<Layer> &layers,
                             const Eigen::VectorXf &input,
                             const Eigen::VectorXf &output,
                             float learning_rate)

@@ -65,6 +65,23 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
     }
 }
 
+[[nodiscard]] Eigen::PermutationMatrix<Eigen::Dynamic>
+make_random_permutation(Eigen::Index size, std::minstd_rand &rng)
+{
+    Eigen::PermutationMatrix<Eigen::Dynamic> perm(size);
+    perm.setIdentity();
+    std::shuffle(perm.indices().data(),
+                 perm.indices().data() + perm.indices().size(),
+                 rng);
+    return perm;
+}
+
+void permute_columns(Eigen::MatrixXf &m, std::minstd_rand &rng)
+{
+    const auto perm = make_random_permutation(m.cols(), rng);
+    m *= perm;
+}
+
 [[nodiscard]] Dataset load_dataset(const char *file_name,
                                    Eigen::Index input_size)
 {
@@ -151,6 +168,7 @@ void store_image(std::vector<Layer> &layers,
     {
         for (std::size_t j {0}; j < dataset.image_width; ++j)
         {
+            // FIXME: x and y should be in the range [-1, 1]
             const auto x = static_cast<float>(j) /
                            static_cast<float>(dataset.image_width - 1);
             const auto y = static_cast<float>(i) /
@@ -162,7 +180,7 @@ void store_image(std::vector<Layer> &layers,
                 x,
                 y);
 
-            network_predict(layers, input);
+            forward_pass(layers, input);
 
             const auto index = i * dataset.image_width + j;
             const auto &output = layers.back().activations;
@@ -243,11 +261,11 @@ int main(int argc, char *argv[])
             std::cout << "Epoch " << epoch << '\n';
             for (const auto &training_pair : dataset.training_pairs)
             {
-                network_predict(layers, training_pair.input);
-                network_update_weights(layers,
-                                       training_pair.input,
-                                       training_pair.output,
-                                       learning_rate);
+                forward_pass(layers, training_pair.input);
+                backward_pass(layers,
+                              training_pair.input,
+                              training_pair.output,
+                              learning_rate);
             }
         }
 
