@@ -7,7 +7,7 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#include <lyra/lyra.hpp>
+#include "CLI/CLI.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -22,6 +22,54 @@
 
 namespace
 {
+
+class Custom_formatter : public CLI::Formatter
+{
+public:
+    std::string make_option_opts(const CLI::Option *opt) const override
+    {
+        std::stringstream out;
+
+        if (!opt->get_option_text().empty())
+        {
+            out << " " << opt->get_option_text();
+        }
+        else
+        {
+            if (opt->get_type_size() != 0)
+            {
+                if (!opt->get_type_name().empty())
+                    out << " " << get_label(opt->get_type_name());
+                if (!opt->get_default_str().empty())
+                    out << " [" << opt->get_default_str() << "] ";
+                if (opt->get_expected_max() ==
+                    CLI::detail::expected_max_vector_size)
+                    out << " ...";
+                else if (opt->get_expected_min() > 1)
+                    out << " x " << opt->get_expected();
+
+                if (opt->get_required())
+                    out << " " << get_label("REQUIRED");
+            }
+            if (!opt->get_envname().empty())
+                out << " (" << get_label("Env") << ":" << opt->get_envname()
+                    << ")";
+            if (!opt->get_needs().empty())
+            {
+                out << " " << get_label("Needs") << ":";
+                for (const CLI::Option *op : opt->get_needs())
+                    out << " " << op->get_name();
+            }
+            if (!opt->get_excludes().empty())
+            {
+                out << " " << get_label("Excludes") << ":";
+                for (const CLI::Option *op : opt->get_excludes())
+                    out << " " << op->get_name();
+            }
+        }
+        return out.str();
+    }
+};
 
 struct Dataset
 {
@@ -186,50 +234,43 @@ int main(int argc, char *argv[])
 {
     try
     {
-        bool show_help {false};
+        CLI::App cli_app;
+        argv = cli_app.ensure_utf8(argv);
+
         std::string input_file_name {};
         std::string output_file_name {"out.png"};
         unsigned int num_epochs {1};
         std::vector<Eigen::Index> layer_sizes {128, 128, 128};
         float learning_rate {0.01f};
 
-        auto cli = lyra::cli();
-        cli.add_argument(lyra::help(show_help).description(""));
-        cli.add_argument(lyra::arg(input_file_name, "input")
-                             .required()
-                             .help("The input image"));
-        cli.add_argument(lyra::opt(output_file_name, "output")
-                             .name("-o")
-                             .name("--output")
-                             .help("The output image (PNG)"));
-        cli.add_argument(lyra::opt(num_epochs, "epochs")
-                             .name("-e")
-                             .name("--epochs")
-                             .help("Number of training epochs"));
-        cli.add_argument(lyra::opt(layer_sizes, "layer_sizes ...")
-                             .name("-a")
-                             .name("--arch")
-                             .help("Sizes of the network layers (includes the "
-                                   "input size but excludes the output size)"));
-        cli.add_argument(lyra::opt(learning_rate, "learning_rate")
-                             .name("-l")
-                             .name("--learning-rate")
-                             .help("Learning rate"));
+        cli_app.add_option("input", input_file_name, "The input image")
+            ->required()
+            ->check(CLI::ExistingFile);
+        cli_app
+            .add_option(
+                "-o,--output", output_file_name, "The output image (PNG)")
+            ->capture_default_str();
+        cli_app
+            .add_option("-e,--epochs", num_epochs, "Number of training epochs")
+            ->capture_default_str();
+        cli_app
+            .add_option("-a,--arch",
+                        layer_sizes,
+                        "Sizes of the network layers (includes the input size "
+                        "but excludes the output size)")
+            ->capture_default_str()
+            ->check(CLI::Range(Eigen::Index {1},
+                               std::numeric_limits<Eigen::Index>::max()))
+            ->check(CLI::Range(Eigen::Index {2},
+                               std::numeric_limits<Eigen::Index>::max())
+                        .application_index(0));
+        cli_app
+            .add_option("-l,--learning-rate", learning_rate, "Learning rate")
+            ->capture_default_str();
 
-        auto result = cli.parse({argc, argv});
-        if (!result)
-        {
-            std::cerr << "Error in command line: " << result.message()
-                      << std::endl;
-            std::cerr << cli << "\n";
-            return EXIT_FAILURE;
-        }
+        cli_app.formatter(std::make_shared<Custom_formatter>());
 
-        if (show_help)
-        {
-            std::cout << cli << "\n";
-            return EXIT_SUCCESS;
-        }
+        CLI11_PARSE(cli_app, argc, argv)
 
         // TODO: we should let the user select 1 or 3 output channels
         layer_sizes.push_back(3);
