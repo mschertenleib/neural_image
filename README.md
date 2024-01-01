@@ -62,6 +62,12 @@ OPTIONS
                     Learning rate
 ```
 
+## Convert progress images to video
+
+```
+ffmpeg -framerate 2 -i progress_dir/%05d.png -c:v libx264 -r 30 -pix_fmt yuv420p output.mp4
+```
+
 ## External libraries
 
 - [Eigen](https://eigen.tuxfamily.org/index.php?title=Main_Page) for
