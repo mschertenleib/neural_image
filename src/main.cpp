@@ -7,13 +7,27 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
-#include "CLI/CLI.hpp"
+// NOTE: clipp uses std::result_of, but it is removed in C++20. GCC did not
+// remove it yet, so just define it for MSVC.
+#ifdef _MSC_VER
+namespace std
+{
+template <class>
+struct result_of;
+template <class F, class... ArgTypes>
+struct result_of<F(ArgTypes...)> : std::invoke_result<F, ArgTypes...>
+{
+};
+} // namespace std
+#endif
+#include "clipp.h"
 
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <memory>
 #include <numbers>
+#include <numeric>
 #include <optional>
 #include <random>
 #include <vector>
@@ -22,20 +36,6 @@
 
 namespace
 {
-
-class Custom_formatter : public CLI::Formatter
-{
-public:
-    std::string make_option_opts(const CLI::Option *opt) const override
-    {
-        std::stringstream out;
-        if (!opt->get_option_text().empty())
-        {
-            out << " " << opt->get_option_text();
-        }
-        return out.str();
-    }
-};
 
 struct Dataset
 {
@@ -148,7 +148,6 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
 }
 
 void store_image(std::vector<Layer> &layers,
-                 const Dataset &dataset,
                  std::size_t width,
                  std::size_t height,
                  const char *file_name)
@@ -194,51 +193,110 @@ void store_image(std::vector<Layer> &layers,
     }
 }
 
+void print_error(const clipp::parsing_result &result,
+                 const std::vector<std::string> &unmatched,
+                 const clipp::group &cli,
+                 const std::string &executable_name)
+{
+    if (!unmatched.empty())
+    {
+        std::cerr << "Unmatched extra arguments:";
+        for (const auto &arg : unmatched)
+        {
+            std::cerr << " \"" << arg << '\"';
+        }
+        std::cerr << '\n';
+    }
+
+    for (const auto &arg : result.missing())
+    {
+        if (!arg.param()->label().empty())
+        {
+            std::cerr << "Missing parameter \"" << arg.param()->label()
+                      << "\" after index " << arg.after_index() << '\n';
+        }
+    }
+
+    for (const auto &arg : result)
+    {
+        if (arg.any_error())
+        {
+            std::cerr << "Error at argument " << arg.index() << " \""
+                      << arg.arg() << "\"\n";
+        }
+    }
+
+    std::cerr << "Usage:\n" << clipp::usage_lines(cli, executable_name) << '\n';
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
     try
     {
-        CLI::App cli_app;
-        argv = cli_app.ensure_utf8(argv);
-
+        bool show_help {false};
         std::string input_file_name {};
         std::string output_file_name {"out.png"};
         unsigned int num_epochs {1};
-        std::vector<Eigen::Index> layer_sizes {128, 128, 128};
+        std::vector<Eigen::Index> layer_sizes;
         float learning_rate {0.01f};
+        std::vector<std::string> unmatched;
 
-        cli_app.add_option("<input>", input_file_name, "The input image")
-            ->option_text("")
-            ->required()
-            ->check(CLI::ExistingFile);
-        cli_app
-            .add_option(
-                "-o,--output", output_file_name, "The output image (PNG)")
-            ->option_text("<output>");
-        cli_app
-            .add_option("-e,--epochs", num_epochs, "Number of training epochs")
-            ->option_text("<epochs>");
-        cli_app
-            .add_option("-a,--arch",
-                        layer_sizes,
-                        "Sizes of the network layers (includes the input size "
-                        "but excludes the output size)")
-            ->option_text("<sizes> ...")
-            ->check(CLI::Range(Eigen::Index {1},
-                               std::numeric_limits<Eigen::Index>::max()))
-            ->check(CLI::Range(Eigen::Index {2},
-                               std::numeric_limits<Eigen::Index>::max())
-                        .application_index(0));
-        cli_app
-            .add_option("-l,--learning-rate", learning_rate, "Learning rate")
-            ->option_text("<rate>");
+        const auto cli =
+            (clipp::option("-h", "--help")
+                 .set(show_help)
+                 .doc("Show this message and exit") |
+             (clipp::value(
+                  clipp::match::prefix_not("-"), "input", input_file_name)
+                  .doc("The input image"),
+              (clipp::option("-o", "--output") &
+               clipp::value(
+                   clipp::match::prefix_not("-"), "output", output_file_name))
+                  .doc("The output image (PNG)"),
+              (clipp::option("-e", "--epochs") &
+               clipp::value(
+                   clipp::match::positive_integers(), "epochs", num_epochs))
+                  .doc("Number of training epochs"),
+              (clipp::option("-a", "--arch") &
+               clipp::values(clipp::match::positive_integers(),
+                             "layer_sizes",
+                             layer_sizes))
+                  .doc("Sizes of the network layers (includes the input "
+                       "size but excludes the output size)"),
+              (clipp::option("-l", "--learning_rate") &
+               clipp::value(
+                   clipp::match::numbers(), "learning_rate", learning_rate))
+                  .doc("Learning rate"),
+              clipp::any_other(unmatched)));
 
-        cli_app.formatter(std::make_shared<Custom_formatter>());
+        assert(cli.flags_are_prefix_free());
+        assert(cli.common_flag_prefix() == "-");
 
-        CLI11_PARSE(cli_app, argc, argv)
+        const auto result = clipp::parse(argc, argv, cli);
 
+        if (result.any_error() || !unmatched.empty())
+        {
+            print_error(result,
+                        unmatched,
+                        cli,
+                        std::filesystem::path(argv[0]).filename().string());
+            return EXIT_FAILURE;
+        }
+
+        if (show_help)
+        {
+            std::cout << clipp::make_man_page(
+                             cli,
+                             std::filesystem::path(argv[0]).filename().string())
+                      << '\n';
+            return EXIT_SUCCESS;
+        }
+
+        if (layer_sizes.empty())
+        {
+            layer_sizes.assign({128, 128, 128});
+        }
         // TODO: we should let the user select 1 or 3 output channels
         layer_sizes.push_back(3);
 
@@ -291,7 +349,6 @@ int main(int argc, char *argv[])
 #endif
 
         store_image(layers,
-                    dataset,
                     static_cast<std::size_t>(dataset.width),
                     static_cast<std::size_t>(dataset.height),
                     output_file_name.c_str());

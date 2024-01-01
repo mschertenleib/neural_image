@@ -34,7 +34,7 @@ cmake --build build --target neural_image
   matrix/vector operations
 - [stb_image and stb_image_write](https://github.com/nothings/stb) for image
   reading/writing
-- [CLI11](https://github.com/CLIUtils/CLI11) for command-line parsing
+- [clipp](https://github.com/muellan/clipp) for command-line argument parsing
 
 ## Inspiration & References
 
