@@ -33,7 +33,6 @@ struct result_of<F(ArgTypes...)> : std::invoke_result<F, ArgTypes...>
 #include <vector>
 
 #include <cstdlib>
-#include <ctime>
 
 namespace
 {
@@ -246,33 +245,6 @@ void print_error(const clipp::parsing_result &result,
     std::cerr << "Usage:\n" << clipp::usage_lines(cli, executable_name) << '\n';
 }
 
-[[nodiscard]] std::filesystem::path
-create_progress_path(const std::string &progress_directory)
-{
-    const auto t = std::time(nullptr);
-    const auto tm = *std::localtime(&t);
-    std::ostringstream oss;
-    oss << std::put_time(&tm, "%Y%m%d%H%M%S");
-    return std::filesystem::path(progress_directory) /
-           std::filesystem::path(oss.str());
-}
-
-void save_progress(const std::filesystem::path &dir_path,
-                   std::vector<Layer> &layers,
-                   const Dataset &dataset,
-                   unsigned int epoch)
-{
-    char buffer[] {"00000.png"};
-    std::snprintf(buffer, sizeof(buffer), "%05u.png", epoch);
-    const auto file_path = dir_path / std::filesystem::path(buffer);
-    std::cout << "Saving progress to " << file_path << '\n';
-    store_image(layers,
-                dataset.width,
-                dataset.height,
-                dataset.channels,
-                file_path.string().c_str());
-}
-
 } // namespace
 
 int main(int argc, char *argv[])
@@ -282,7 +254,6 @@ int main(int argc, char *argv[])
         bool show_help {false};
         std::string input_file_name;
         std::string output_file_name {"out.png"};
-        std::string progress_directory;
         std::vector<int> layer_sizes;
         bool force_gray {false};
         unsigned int num_epochs {1};
@@ -302,13 +273,6 @@ int main(int argc, char *argv[])
                clipp::value(
                    clipp::match::prefix_not("-"), "output", output_file_name))
                   .doc("The output image (PNG)"),
-              (clipp::option("-p", "--progress") &
-               clipp::value(clipp::match::prefix_not("-"),
-                            "directory",
-                            progress_directory))
-                  .doc("Save output images at each epoch. From the given "
-                       "directory, the images will be stored in a nested "
-                       "directory with a timestamp name"),
               (clipp::option("-a", "--arch") &
                clipp::values(clipp::match::positive_integers(),
                              "layer_sizes",
@@ -359,30 +323,22 @@ int main(int argc, char *argv[])
         }
 
         std::cout << "Input: \"" << input_file_name << "\"\n"
-                  << "Output: \"" << output_file_name << "\"\n";
-        std::filesystem::path progress_path;
-        if (!progress_directory.empty())
-        {
-            progress_path = create_progress_path(progress_directory);
-            std::cout << "Progress directory: " << progress_path << '\n';
-            std::filesystem::create_directory(progress_directory);
-            std::filesystem::create_directory(progress_path);
-        }
-        std::cout << "Network layout:";
+                  << "Output: \"" << output_file_name << "\"\n"
+                  << "Network layout:";
         for (const auto size : layer_sizes)
         {
             std::cout << ' ' << size;
         }
-        std::cout << '\n';
-        std::cout << "Epochs: " << num_epochs << '\n';
-        std::cout << "Learning rate: " << learning_rate << '\n';
+        std::cout << '\n'
+                  << "Epochs: " << num_epochs << '\n'
+                  << "Learning rate: " << learning_rate << '\n';
 
         const auto dataset = load_dataset(
             input_file_name.c_str(), layer_sizes.front(), force_gray);
         layer_sizes.push_back(dataset.channels);
 
-        std::cout << "Channels: " << dataset.channels << '\n';
-        std::cout << std::string(72, '-') << '\n';
+        std::cout << "Channels: " << dataset.channels << '\n'
+                  << std::string(72, '-') << '\n';
 
         std::random_device rd;
         std::minstd_rand rng(rd());
@@ -396,26 +352,9 @@ int main(int argc, char *argv[])
 
         Eigen::VectorXf input(layer_sizes.front());
         Eigen::VectorXf output(layer_sizes.back());
-/*
-#ifndef NDEBUG
-        Eigen::internal::set_is_malloc_allowed(false);
-#endif
-*/
+
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
-            // TODO: looking at the progress images, we quickly converge to
-            // something that resembles the input, so maybe this whole progress
-            // feature is not very relevant
-            // TODO: we really should focus on multiple input images and custom
-            // dimensions for the output, this is the primary goal of this
-            // project. If we wanted a nice visualization of the learning
-            // process, an actual interface would have been better anyway, and
-            // we should not go down that route.
-            if (!progress_path.empty())
-            {
-                save_progress(progress_path, layers, dataset, epoch);
-            }
-
             std::cout << "Training epoch " << epoch;
 
             std::shuffle(indices.begin(), indices.end(), rng);
@@ -430,15 +369,6 @@ int main(int argc, char *argv[])
             }
 
             std::cout << ": cost = " << total_cost << '\n';
-        }
-/*
-#ifndef NDEBUG
-        Eigen::internal::set_is_malloc_allowed(true);
-#endif
-*/
-        if (!progress_path.empty())
-        {
-            save_progress(progress_path, layers, dataset, num_epochs);
         }
 
         std::cout << "Saving output to " << std::quoted(output_file_name)

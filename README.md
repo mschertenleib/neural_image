@@ -18,10 +18,10 @@ learning rate of 0.01.
 
 ## TODO
 
+- Multithreading (should be trivial since Eigen supports OpenMP)
 - Support multiple input images and create animated transitions
 - Selectable output dimensions
 - Clean up the Fourier features code
-- Monitor cost at each epoch
 - Have a look at adaptive learning rate algorithms for possible improvements in
   convergence
 
@@ -53,10 +53,6 @@ OPTIONS
         -o, --output <output>
                     The output image (PNG)
 
-        -p, --progress <directory>
-                    Save output images at each epoch. From the given directory, the images will be
-                    stored in a nested directory with a timestamp name
-
         -a, --arch <layer_sizes>
                     Sizes of the network layers (includes the input size but excludes the output
                     size)
@@ -71,10 +67,10 @@ OPTIONS
                     Learning rate
 ```
 
-## Convert progress images to video
+## Convert images to video
 
 ```
-ffmpeg -framerate 2 -i progress_dir/%05d.png -c:v libx264 -r 30 -pix_fmt yuv420p output.mp4
+ffmpeg -framerate 2 -i %05d.png -c:v libx264 -r 30 -pix_fmt yuv420p output.mp4
 ```
 
 ## External libraries
