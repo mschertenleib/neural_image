@@ -13,8 +13,8 @@ layer.
 The network was trained using stochastic gradient descent for 100 epochs with a
 learning rate of 0.01.
 
-![Input](images/input_color.png)
-![Output](images/output_color.png)
+![Input](images/input.png)
+![Output](images/output.png)
 
 ## Build
 
@@ -26,6 +26,40 @@ git clone https://github.com/mschertenleib/neural_image.git
 cd neural_image
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target neural_image
+```
+
+## Usage
+
+```
+SYNOPSIS
+        neural_image.exe -h
+        neural_image.exe -i <input> -o <output> [-p <directory>] [-a <layer_sizes>...] [--gray] [-e
+                         <epochs>] [-l <learning_rate>]
+
+OPTIONS
+        -h, --help  Show this message and exit
+        -i, --input <input>
+                    The input image (JPEG, PNG, TGA, BMP, PSD, GIF, HDR, PIC, PNM)
+
+        -o, --output <output>
+                    The output image (PNG)
+
+        -p, --progress <directory>
+                    Save output images at each epoch. From the given directory, the images will be
+                    stored in a nested directory with a timestamp name
+
+        -a, --arch <layer_sizes>
+                    Sizes of the network layers (includes the input size but excludes the output
+                    size)
+
+        -g, --gray  Force grayscale for the output image (by default, the output will be either RGB
+                    or grayscale depending on the input)
+
+        -e, --epochs <epochs>
+                    Number of training epochs
+
+        -l, --learning_rate <learning_rate>
+                    Learning rate
 ```
 
 ## External libraries
