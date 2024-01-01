@@ -87,11 +87,23 @@ inline void network_update_deltas(std::vector<Layer> &layers,
     }
 }
 
+inline void network_update_weights(std::vector<Layer> &layers,
+                                   const Eigen::VectorXf &input,
+                                   float learning_rate)
+{
+    for (std::size_t i {layers.size() - 1}; i > 0; --i)
+    {
+        layer_update_weights(
+            layers[i], layers[i - 1].activations, learning_rate);
+    }
+    layer_update_weights(layers.front(), input, learning_rate);
+}
+
 } // namespace
 
-void network_init(std::vector<Layer> &layers, const std::vector<int> &sizes)
+std::vector<Layer> network_init(const std::vector<int> &sizes)
 {
-    layers.resize(sizes.size() - 1);
+    std::vector<Layer> layers(sizes.size() - 1);
 
     std::random_device rd {};
     std::minstd_rand rng(rd());
@@ -102,6 +114,8 @@ void network_init(std::vector<Layer> &layers, const std::vector<int> &sizes)
     }
     layer_init_sigmoid(
         layers.back(), sizes.back(), sizes[sizes.size() - 2], rng);
+
+    return layers;
 }
 
 void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input)
@@ -114,26 +128,13 @@ void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input)
     layer_predict_sigmoid(layers.back(), layers[layers.size() - 2].activations);
 }
 
-// TODO: in terms of API, it might be better to have a forward_pass and a
-// training_pass that combines forward/backward, such that there is no risk of
-// parameter mismatch between forward and backward. We could also directly
-// return the cost there
-void backward_pass(std::vector<Layer> &layers,
-                   const Eigen::VectorXf &input,
-                   const Eigen::VectorXf &output,
-                   float learning_rate)
+float training_pass(std::vector<Layer> &layers,
+                    const Eigen::VectorXf &input,
+                    const Eigen::VectorXf &output,
+                    float learning_rate)
 {
+    forward_pass(layers, input);
     network_update_deltas(layers, output);
-
-    for (std::size_t i {layers.size() - 1}; i > 0; --i)
-    {
-        layer_update_weights(
-            layers[i], layers[i - 1].activations, learning_rate);
-    }
-    layer_update_weights(layers.front(), input, learning_rate);
-}
-
-float cost(const std::vector<Layer> &layers, const Eigen::VectorXf &output)
-{
+    network_update_weights(layers, input, learning_rate);
     return 0.5f * (output - layers.back().activations).squaredNorm();
 }

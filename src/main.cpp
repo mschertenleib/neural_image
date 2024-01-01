@@ -347,8 +347,7 @@ int main(int argc, char *argv[])
             static_cast<std::size_t>(dataset.height));
         std::iota(indices.begin(), indices.end(), 0);
 
-        std::vector<Layer> layers;
-        network_init(layers, layer_sizes);
+        auto layers = network_init(layer_sizes);
 
         Eigen::VectorXf input(layer_sizes.front());
         Eigen::VectorXf output(layer_sizes.back());
@@ -363,9 +362,9 @@ int main(int argc, char *argv[])
             {
                 input << dataset.inputs.col(index);
                 output << dataset.outputs.col(index);
-                forward_pass(layers, input);
-                backward_pass(layers, input, output, learning_rate);
-                total_cost += cost(layers, output);
+                const auto cost =
+                    training_pass(layers, input, output, learning_rate);
+                total_cost += cost;
             }
 
             std::cout << ": cost = " << total_cost << '\n';
