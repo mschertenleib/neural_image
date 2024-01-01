@@ -22,4 +22,7 @@ void backward_pass(std::vector<Layer> &layers,
                    const Eigen::VectorXf &output,
                    float learning_rate);
 
+[[nodiscard]] float cost(const std::vector<Layer> &layers,
+                         const Eigen::VectorXf &output);
+
 #endif // NETWORK_HPP

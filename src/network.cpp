@@ -6,8 +6,7 @@
 namespace
 {
 
-inline void
-layer_init_zero(Layer &layer, Eigen::Index size, Eigen::Index input_size)
+inline void layer_init_zero(Layer &layer, int size, int input_size)
 {
     layer.weights.setZero(size, input_size);
     layer.biases.setZero(size);
@@ -16,8 +15,8 @@ layer_init_zero(Layer &layer, Eigen::Index size, Eigen::Index input_size)
 }
 
 inline void layer_init_leaky_relu(Layer &layer,
-                                  Eigen::Index size,
-                                  Eigen::Index input_size,
+                                  int size,
+                                  int input_size,
                                   std::minstd_rand &rng)
 {
     layer_init_zero(layer, size, input_size);
@@ -29,8 +28,8 @@ inline void layer_init_leaky_relu(Layer &layer,
 }
 
 inline void layer_init_sigmoid(Layer &layer,
-                               Eigen::Index size,
-                               Eigen::Index input_size,
+                               int size,
+                               int input_size,
                                std::minstd_rand &rng)
 {
     layer_init_zero(layer, size, input_size);
@@ -115,6 +114,10 @@ void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input)
     layer_predict_sigmoid(layers.back(), layers[layers.size() - 2].activations);
 }
 
+// TODO: in terms of API, it might be better to have a forward_pass and a
+// training_pass that combines forward/backward, such that there is no risk of
+// parameter mismatch between forward and backward. We could also directly
+// return the cost there
 void backward_pass(std::vector<Layer> &layers,
                    const Eigen::VectorXf &input,
                    const Eigen::VectorXf &output,
@@ -128,4 +131,9 @@ void backward_pass(std::vector<Layer> &layers,
             layers[i], layers[i - 1].activations, learning_rate);
     }
     layer_update_weights(layers.front(), input, learning_rate);
+}
+
+float cost(const std::vector<Layer> &layers, const Eigen::VectorXf &output)
+{
+    return 0.5f * (output - layers.back().activations).squaredNorm();
 }

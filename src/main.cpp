@@ -396,12 +396,11 @@ int main(int argc, char *argv[])
 
         Eigen::VectorXf input(layer_sizes.front());
         Eigen::VectorXf output(layer_sizes.back());
-        /*
-        #ifndef NDEBUG
-                Eigen::internal::set_is_malloc_allowed(false);
-        #endif
-        */
-
+/*
+#ifndef NDEBUG
+        Eigen::internal::set_is_malloc_allowed(false);
+#endif
+*/
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
             // TODO: looking at the progress images, we quickly converge to
@@ -417,23 +416,26 @@ int main(int argc, char *argv[])
                 save_progress(progress_path, layers, dataset, epoch);
             }
 
-            std::cout << "Training epoch " << epoch << '\n';
+            std::cout << "Training epoch " << epoch;
 
             std::shuffle(indices.begin(), indices.end(), rng);
+            float total_cost {0.0f};
             for (const auto index : indices)
             {
                 input << dataset.inputs.col(index);
                 output << dataset.outputs.col(index);
                 forward_pass(layers, input);
                 backward_pass(layers, input, output, learning_rate);
+                total_cost += cost(layers, output);
             }
-        }
-        /*
-        #ifndef NDEBUG
-                Eigen::internal::set_is_malloc_allowed(true);
-        #endif
-        */
 
+            std::cout << ": cost = " << total_cost << '\n';
+        }
+/*
+#ifndef NDEBUG
+        Eigen::internal::set_is_malloc_allowed(true);
+#endif
+*/
         if (!progress_path.empty())
         {
             save_progress(progress_path, layers, dataset, num_epochs);
