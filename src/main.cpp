@@ -404,6 +404,14 @@ int main(int argc, char *argv[])
 
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
+            // TODO: looking at the progress images, we quickly converge to
+            // something that resembles the input, so maybe this whole progress
+            // feature is not very relevant
+            // TODO: we really should focus on multiple input images and custom
+            // dimensions for the output, this is the primary goal of this
+            // project. If we wanted a nice visualization of the learning
+            // process, an actual interface would have been better anyway, and
+            // we should not go down that route.
             if (!progress_path.empty())
             {
                 save_progress(progress_path, layers, dataset, epoch);

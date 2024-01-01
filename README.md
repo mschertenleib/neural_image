@@ -16,6 +16,15 @@ learning rate of 0.01.
 ![Input](images/input.png)
 ![Output](images/output.png)
 
+## TODO
+
+- Support multiple input images and create animated transitions
+- Selectable output dimensions
+- Clean up the Fourier features code
+- Monitor cost at each epoch
+- Have a look at adaptive learning rate algorithms for possible improvements in
+  convergence
+
 ## Build
 
 All dependencies are handled
