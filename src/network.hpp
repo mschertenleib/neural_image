@@ -13,14 +13,13 @@ struct Layer
     Eigen::VectorXf deltas;
 };
 
-void network_init(std::vector<Layer> &layers,
-                  const std::vector<Eigen::Index> &sizes);
+void network_init(std::vector<Layer> &layers, const std::vector<int> &sizes);
 
 void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input);
 
 void backward_pass(std::vector<Layer> &layers,
-                            const Eigen::VectorXf &input,
-                            const Eigen::VectorXf &output,
-                            float learning_rate);
+                   const Eigen::VectorXf &input,
+                   const Eigen::VectorXf &output,
+                   float learning_rate);
 
 #endif // NETWORK_HPP

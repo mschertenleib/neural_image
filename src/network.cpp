@@ -90,8 +90,7 @@ inline void network_update_deltas(std::vector<Layer> &layers,
 
 } // namespace
 
-void network_init(std::vector<Layer> &layers,
-                  const std::vector<Eigen::Index> &sizes)
+void network_init(std::vector<Layer> &layers, const std::vector<int> &sizes)
 {
     layers.resize(sizes.size() - 1);
 
@@ -117,9 +116,9 @@ void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input)
 }
 
 void backward_pass(std::vector<Layer> &layers,
-                            const Eigen::VectorXf &input,
-                            const Eigen::VectorXf &output,
-                            float learning_rate)
+                   const Eigen::VectorXf &input,
+                   const Eigen::VectorXf &output,
+                   float learning_rate)
 {
     network_update_deltas(layers, output);
 

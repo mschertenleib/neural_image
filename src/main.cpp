@@ -43,6 +43,7 @@ struct Dataset
     Eigen::MatrixXf outputs;
     int width;
     int height;
+    int channels;
 };
 
 [[nodiscard]] constexpr float u8_to_float(std::uint8_t u) noexcept
@@ -74,13 +75,22 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
     }
 }
 
-[[nodiscard]] Dataset load_dataset(const char *file_name,
-                                   Eigen::Index input_size)
+[[nodiscard]] Dataset
+load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
 {
     int width {};
     int height {};
     int channels_in_file {};
-    constexpr int desired_channels {3};
+    if (!stbi_info(file_name, &width, &height, &channels_in_file))
+    {
+        throw std::runtime_error(stbi_failure_reason());
+    }
+
+    int desired_channels {3};
+    if (channels_in_file < 3 || force_gray)
+    {
+        desired_channels = 1;
+    }
 
     struct image_deleter
     {
@@ -96,11 +106,13 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
         throw std::runtime_error(stbi_failure_reason());
     }
 
-    Dataset dataset {
-        .inputs = {}, .outputs = {}, .width = width, .height = height};
+    Dataset dataset {.inputs = {},
+                     .outputs = {},
+                     .width = width,
+                     .height = height,
+                     .channels = desired_channels};
     dataset.inputs.setZero(input_size, width * height);
-    constexpr Eigen::Index output_size {3};
-    dataset.outputs.setZero(output_size, width * height);
+    dataset.outputs.setZero(desired_channels, width * height);
 
     std::random_device rd {};
     std::minstd_rand rng(rd());
@@ -112,7 +124,7 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
     frequencies = frequencies.unaryExpr(generate_weight);
 
     Eigen::VectorXf input(input_size);
-    Eigen::VectorXf output(output_size);
+    Eigen::VectorXf output(desired_channels);
 
     for (Eigen::Index i {0}; i < height; ++i)
     {
@@ -132,13 +144,11 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
                          .cos(),
                 (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
 #endif
-            output << u8_to_float(
-                image[static_cast<std::size_t>(pixel_index * 3 + 0)]),
-                u8_to_float(
-                    image[static_cast<std::size_t>(pixel_index * 3 + 1)]),
-                u8_to_float(
-                    image[static_cast<std::size_t>(pixel_index * 3 + 2)]);
-
+            for (int channel {0}; channel < desired_channels; ++channel)
+            {
+                output(channel) = u8_to_float(image[static_cast<std::size_t>(
+                    pixel_index * desired_channels + channel)]);
+            }
             dataset.inputs.col(pixel_index) = input;
             dataset.outputs.col(pixel_index) = output;
         }
@@ -148,18 +158,21 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
 }
 
 void store_image(std::vector<Layer> &layers,
-                 std::size_t width,
-                 std::size_t height,
+                 int width,
+                 int height,
+                 int channels,
                  const char *file_name)
 {
-    std::vector<std::uint8_t> pixel_data(width * height * 4);
+    std::vector<std::uint8_t> pixel_data(static_cast<std::size_t>(width) *
+                                         static_cast<std::size_t>(height) *
+                                         static_cast<std::size_t>(channels));
 
     const auto input_size = layers.front().weights.cols();
     Eigen::VectorXf input(input_size);
 
-    for (std::size_t i {0}; i < height; ++i)
+    for (int i {0}; i < height; ++i)
     {
-        for (std::size_t j {0}; j < width; ++j)
+        for (int j {0}; j < width; ++j)
         {
             // FIXME: x and y should be in the range [-1, 1]
             const auto x =
@@ -172,21 +185,28 @@ void store_image(std::vector<Layer> &layers,
 
             forward_pass(layers, input);
 
-            const auto index = i * width + j;
+            const auto pixel_index = i * width + j;
             const auto &output = layers.back().activations;
-            pixel_data[index * 4 + 0] = float_to_u8(output(0));
-            pixel_data[index * 4 + 1] = float_to_u8(output(1));
-            pixel_data[index * 4 + 2] = float_to_u8(output(2));
-            pixel_data[index * 4 + 3] = 255;
+            for (int channel {0}; channel < channels; ++channel)
+            {
+                pixel_data[static_cast<std::size_t>(pixel_index) *
+                               static_cast<std::size_t>(channels) +
+                           static_cast<std::size_t>(channel)] =
+                    float_to_u8(output(channel));
+            }
+            /*pixel_data[pixel_index * 4 + 0] = float_to_u8(output(0));
+            pixel_data[pixel_index * 4 + 1] = float_to_u8(output(1));
+            pixel_data[pixel_index * 4 + 2] = float_to_u8(output(2));
+            pixel_data[pixel_index * 4 + 3] = 255;*/
         }
     }
 
     const auto write_result = stbi_write_png(file_name,
-                                             static_cast<int>(width),
-                                             static_cast<int>(height),
-                                             4,
+                                             width,
+                                             height,
+                                             channels,
                                              pixel_data.data(),
-                                             static_cast<int>(width) * 4);
+                                             width * channels);
     if (write_result == 0)
     {
         throw std::runtime_error("Failed to store image");
@@ -239,7 +259,9 @@ int main(int argc, char *argv[])
         std::string input_file_name {};
         std::string output_file_name {"out.png"};
         unsigned int num_epochs {1};
-        std::vector<Eigen::Index> layer_sizes;
+        std::vector<int> layer_sizes;
+        bool force_rgb {false};
+        bool force_gray {false};
         float learning_rate {0.01f};
         std::vector<std::string> unmatched;
 
@@ -247,23 +269,29 @@ int main(int argc, char *argv[])
             (clipp::option("-h", "--help")
                  .set(show_help)
                  .doc("Show this message and exit") |
-             (clipp::value(
-                  clipp::match::prefix_not("-"), "input", input_file_name)
+             ((clipp::required("-i", "--input") &
+               clipp::value(
+                   clipp::match::prefix_not("-"), "input", input_file_name))
                   .doc("The input image"),
               (clipp::option("-o", "--output") &
                clipp::value(
                    clipp::match::prefix_not("-"), "output", output_file_name))
                   .doc("The output image (PNG)"),
-              (clipp::option("-e", "--epochs") &
-               clipp::value(
-                   clipp::match::positive_integers(), "epochs", num_epochs))
-                  .doc("Number of training epochs"),
               (clipp::option("-a", "--arch") &
                clipp::values(clipp::match::positive_integers(),
                              "layer_sizes",
                              layer_sizes))
                   .doc("Sizes of the network layers (includes the input "
                        "size but excludes the output size)"),
+              clipp::option("--gray")
+                  .set(force_gray)
+                  .doc("Force grayscale for the output image (by default, the "
+                       "output will be RGB or grayscale depending on the "
+                       "input)"),
+              (clipp::option("-e", "--epochs") &
+               clipp::value(
+                   clipp::match::positive_integers(), "epochs", num_epochs))
+                  .doc("Number of training epochs"),
               (clipp::option("-l", "--learning_rate") &
                clipp::value(
                    clipp::match::numbers(), "learning_rate", learning_rate))
@@ -297,8 +325,6 @@ int main(int argc, char *argv[])
         {
             layer_sizes.assign({128, 128, 128});
         }
-        // TODO: we should let the user select 1 or 3 output channels
-        layer_sizes.push_back(3);
 
         std::cout << "Input: \"" << input_file_name << "\"\n"
                   << "Output: \"" << output_file_name << "\"\n"
@@ -310,8 +336,11 @@ int main(int argc, char *argv[])
         }
         std::cout << '\n';
 
-        const auto dataset =
-            load_dataset(input_file_name.c_str(), layer_sizes.front());
+        const auto dataset = load_dataset(
+            input_file_name.c_str(), layer_sizes.front(), force_gray);
+        layer_sizes.push_back(dataset.channels);
+
+        std::cout << "Channels: " << dataset.channels << '\n';
 
         std::random_device rd;
         std::minstd_rand rng(rd());
@@ -349,8 +378,9 @@ int main(int argc, char *argv[])
 #endif
 
         store_image(layers,
-                    static_cast<std::size_t>(dataset.width),
-                    static_cast<std::size_t>(dataset.height),
+                    dataset.width,
+                    dataset.height,
+                    dataset.channels,
                     output_file_name.c_str());
 
         return EXIT_SUCCESS;
