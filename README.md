@@ -18,12 +18,9 @@ learning rate of 0.01.
 
 ## TODO
 
-- Multithreading (should be trivial since Eigen supports OpenMP)
 - Support multiple input images and create animated transitions
 - Selectable output dimensions
 - Clean up the Fourier features code
-- Have a look at adaptive learning rate algorithms for possible improvements in
-  convergence
 
 ## Build
 
@@ -42,8 +39,8 @@ cmake --build build --target neural_image
 ```
 SYNOPSIS
         neural_image.exe -h
-        neural_image.exe -i <input> -o <output> [-p <directory>] [-a <layer_sizes>...] [--gray] [-e
-                         <epochs>] [-l <learning_rate>]
+        neural_image.exe -i <input> -o <output> [-W <width>] [-H <height>] [-a <layer_sizes>...]
+                         [-g] [-e <epochs>] [-l <learning_rate>]
 
 OPTIONS
         -h, --help  Show this message and exit
@@ -52,6 +49,12 @@ OPTIONS
 
         -o, --output <output>
                     The output image (PNG)
+
+        -W, --width <width>
+                    The width of the output image
+
+        -H, --height <height>
+                    The height of the output image
 
         -a, --arch <layer_sizes>
                     Sizes of the network layers (includes the input size but excludes the output

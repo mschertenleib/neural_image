@@ -128,13 +128,12 @@ void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input)
     layer_predict_sigmoid(layers.back(), layers[layers.size() - 2].activations);
 }
 
-float training_pass(std::vector<Layer> &layers,
-                    const Eigen::VectorXf &input,
-                    const Eigen::VectorXf &output,
-                    float learning_rate)
+void training_pass(std::vector<Layer> &layers,
+                   const Eigen::VectorXf &input,
+                   const Eigen::VectorXf &output,
+                   float learning_rate)
 {
     forward_pass(layers, input);
     network_update_deltas(layers, output);
     network_update_weights(layers, input, learning_rate);
-    return 0.5f * (output - layers.back().activations).squaredNorm();
 }

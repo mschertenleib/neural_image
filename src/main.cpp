@@ -28,7 +28,6 @@ struct result_of<F(ArgTypes...)> : std::invoke_result<F, ArgTypes...>
 #include <memory>
 #include <numbers>
 #include <numeric>
-#include <optional>
 #include <random>
 #include <vector>
 
@@ -106,6 +105,9 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
         throw std::runtime_error(stbi_failure_reason());
     }
 
+    std::cout << "Input size is " << width << " x " << height << " pixels, "
+              << desired_channels << " channels\n";
+
     Dataset dataset {.inputs = {},
                      .outputs = {},
                      .width = width,
@@ -157,18 +159,19 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
     return dataset;
 }
 
-void store_image(std::vector<Layer> &layers,
+void store_image(const char *file_name,
+                 std::vector<Layer> &layers,
                  int width,
                  int height,
-                 int channels,
-                 const char *file_name)
+                 int input_width,
+                 int input_height)
 {
+    Eigen::VectorXf input(layers.front().weights.cols());
+
+    const auto channels = static_cast<int>(layers.back().activations.size());
     std::vector<std::uint8_t> pixel_data(static_cast<std::size_t>(width) *
                                          static_cast<std::size_t>(height) *
                                          static_cast<std::size_t>(channels));
-
-    const auto input_size = layers.front().weights.cols();
-    Eigen::VectorXf input(input_size);
 
     for (int i {0}; i < height; ++i)
     {
@@ -181,7 +184,7 @@ void store_image(std::vector<Layer> &layers,
                 static_cast<float>(i) / static_cast<float>(height - 1);
 
             get_fourier_features_positional_encoding(
-                input, std::max(width, height), x, y);
+                input, std::max(input_width, input_height), x, y);
 
             forward_pass(layers, input);
 
@@ -258,6 +261,8 @@ int main(int argc, char *argv[])
         bool force_gray {false};
         unsigned int num_epochs {1};
         float learning_rate {0.01f};
+        int output_width {};
+        int output_height {};
         std::vector<std::string> unmatched;
 
         const auto cli =
@@ -273,6 +278,14 @@ int main(int argc, char *argv[])
                clipp::value(
                    clipp::match::prefix_not("-"), "output", output_file_name))
                   .doc("The output image (PNG)"),
+              (clipp::option("-W", "--width") &
+               clipp::value(
+                   clipp::match::positive_integers(), "width", output_width))
+                  .doc("The width of the output image"),
+              (clipp::option("-H", "--height") &
+               clipp::value(
+                   clipp::match::positive_integers(), "height", output_height))
+                  .doc("The height of the output image"),
               (clipp::option("-a", "--arch") &
                clipp::values(clipp::match::positive_integers(),
                              "layer_sizes",
@@ -335,16 +348,38 @@ int main(int argc, char *argv[])
 
         const auto dataset = load_dataset(
             input_file_name.c_str(), layer_sizes.front(), force_gray);
+
         layer_sizes.push_back(dataset.channels);
 
-        std::cout << "Channels: " << dataset.channels << '\n'
-                  << std::string(72, '-') << '\n';
+        if (output_width > 0 && output_height == 0)
+        {
+            const auto aspect_ratio = static_cast<float>(dataset.width) /
+                                      static_cast<float>(dataset.height);
+            output_height = static_cast<int>(static_cast<float>(output_width) /
+                                             aspect_ratio);
+        }
+        else if (output_width == 0 && output_height > 0)
+        {
+            const auto aspect_ratio = static_cast<float>(dataset.width) /
+                                      static_cast<float>(dataset.height);
+            output_width = static_cast<int>(static_cast<float>(output_height) *
+                                            aspect_ratio);
+        }
+        else if (output_width == 0 && output_height == 0)
+        {
+            output_width = dataset.width;
+            output_height = dataset.height;
+        }
+
+        std::cout << "Output size is " << output_width << " x " << output_height
+                  << " pixels\n";
+
+        std::cout << std::string(72, '-') << '\n';
 
         std::random_device rd;
         std::minstd_rand rng(rd());
-        std::vector<Eigen::Index> indices(
-            static_cast<std::size_t>(dataset.width) *
-            static_cast<std::size_t>(dataset.height));
+        std::vector<int> indices(
+            static_cast<std::size_t>(dataset.inputs.cols()));
         std::iota(indices.begin(), indices.end(), 0);
 
         auto layers = network_init(layer_sizes);
@@ -354,29 +389,25 @@ int main(int argc, char *argv[])
 
         for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
         {
-            std::cout << "Training epoch " << epoch;
+            std::cout << "Training epoch " << epoch << '\n';
 
             std::shuffle(indices.begin(), indices.end(), rng);
-            float total_cost {0.0f};
             for (const auto index : indices)
             {
                 input << dataset.inputs.col(index);
                 output << dataset.outputs.col(index);
-                const auto cost =
-                    training_pass(layers, input, output, learning_rate);
-                total_cost += cost;
+                training_pass(layers, input, output, learning_rate);
             }
-
-            std::cout << ": cost = " << total_cost << '\n';
         }
 
-        std::cout << "Saving output to " << std::quoted(output_file_name)
-                  << '\n';
-        store_image(layers,
+        std::cout << "Saving " << output_width << " x " << output_height
+                  << " output to " << std::quoted(output_file_name) << '\n';
+        store_image(output_file_name.c_str(),
+                    layers,
+                    output_width,
+                    output_height,
                     dataset.width,
-                    dataset.height,
-                    dataset.channels,
-                    output_file_name.c_str());
+                    dataset.height);
 
         return EXIT_SUCCESS;
     }

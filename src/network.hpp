@@ -17,9 +17,9 @@ struct Layer
 
 void forward_pass(std::vector<Layer> &layers, const Eigen::VectorXf &input);
 
-float training_pass(std::vector<Layer> &layers,
-                    const Eigen::VectorXf &input,
-                    const Eigen::VectorXf &output,
-                    float learning_rate);
+void training_pass(std::vector<Layer> &layers,
+                   const Eigen::VectorXf &input,
+                   const Eigen::VectorXf &output,
+                   float learning_rate);
 
 #endif // NETWORK_HPP
