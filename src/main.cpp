@@ -28,6 +28,7 @@ struct result_of<F(ArgTypes...)> : std::invoke_result<F, ArgTypes...>
 #include <memory>
 #include <numbers>
 #include <numeric>
+#include <optional>
 #include <random>
 #include <vector>
 
@@ -35,6 +36,19 @@ struct result_of<F(ArgTypes...)> : std::invoke_result<F, ArgTypes...>
 
 namespace
 {
+
+struct Parameters
+{
+    std::string input_file_name;
+    std::string output_file_name;
+    std::vector<int> layer_sizes;
+    bool force_gray;
+    int num_epochs;
+    int batch_size;
+    float learning_rate;
+    int output_width;
+    int output_height;
+};
 
 struct Dataset
 {
@@ -126,9 +140,6 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
         throw std::runtime_error(stbi_failure_reason());
     }
 
-    std::cout << "Input size is " << width << " x " << height << " pixels, "
-              << desired_channels << " channels\n";
-
     Dataset dataset {.inputs = {},
                      .outputs = {},
                      .width = width,
@@ -172,6 +183,8 @@ void store_image(const char *file_name,
                  int input_width,
                  int input_height)
 {
+    std::cout << "Creating " << width << " x " << height << " output\n";
+
     Eigen::VectorXf input(layers.front().weights.cols());
 
     const auto channels = static_cast<int>(layers.back().activations.size());
@@ -203,6 +216,8 @@ void store_image(const char *file_name,
             }
         }
     }
+
+    std::cout << "Saving output to " << std::quoted(file_name) << '\n';
 
     const auto write_result = stbi_write_png(file_name,
                                              width,
@@ -252,133 +267,189 @@ void print_error(const clipp::parsing_result &result,
     std::cerr << "Usage:\n" << clipp::usage_lines(cli, executable_name) << '\n';
 }
 
+[[nodiscard]] Parameters parse_command_line(int argc, char *argv[])
+{
+    Parameters params {.input_file_name = {},
+                       .output_file_name = {},
+                       .layer_sizes = {},
+                       .force_gray = false,
+                       .num_epochs = 1,
+                       .batch_size = 16,
+                       .learning_rate = 0.002f,
+                       .output_width = 0,
+                       .output_height = 0};
+
+    bool show_help {false};
+    std::vector<std::string> unmatched;
+
+    const auto cli =
+        (clipp::option("-h", "--help")
+             .set(show_help)
+             .doc("Show this message and exit") |
+         ((clipp::required("-i", "--input") &
+           clipp::value(
+               clipp::match::prefix_not("-"), "input", params.input_file_name))
+              .doc("The input image (JPEG, PNG, TGA, BMP, PSD, GIF, HDR, "
+                   "PIC, PNM)"),
+          (clipp::required("-o", "--output") &
+           clipp::value(clipp::match::prefix_not("-"),
+                        "output",
+                        params.output_file_name))
+              .doc("The output image (PNG)"),
+          (clipp::required("-a", "--arch") &
+           clipp::values(
+               clipp::match::integers(), "layer_sizes", params.layer_sizes))
+              .doc("Sizes of the network layers (includes the input "
+                   "size but excludes the output size)"),
+          (clipp::option("-W", "--width") &
+           clipp::value(clipp::match::integers(), "width", params.output_width))
+              .doc("The width of the output image (by default, the same as "
+                   "the input image)"),
+          (clipp::option("-H", "--height") &
+           clipp::value(
+               clipp::match::integers(), "height", params.output_height))
+              .doc("The height of the output image (by default, the same "
+                   "as the input image)"),
+          clipp::option("-g", "--gray")
+              .set(params.force_gray)
+              .doc("Force grayscale (by default, the output will be either "
+                   "RGB or grayscale depending on the input)"),
+          (clipp::option("-e", "--epochs") &
+           clipp::value(clipp::match::integers(), "epochs", params.num_epochs))
+              .doc("Number of training epochs (default: " +
+                   std::to_string(params.num_epochs) + ")"),
+          (clipp::option("-b", "--batch-size") &
+           clipp::value(
+               clipp::match::integers(), "batch_size", params.batch_size))
+              .doc("Mini-batch size (default: " +
+                   std::to_string(params.batch_size) + ")"),
+          (clipp::option("-l", "--learning-rate") &
+           clipp::value(
+               clipp::match::numbers(), "learning_rate", params.learning_rate))
+              .doc("Learning rate (default: " +
+                   std::to_string(params.learning_rate) + ")"),
+          clipp::any_other(unmatched)));
+
+    assert(cli.flags_are_prefix_free());
+    assert(cli.common_flag_prefix() == "-");
+
+    const auto result = clipp::parse(argc, argv, cli);
+
+    if (result.any_error() || !unmatched.empty())
+    {
+        print_error(result,
+                    unmatched,
+                    cli,
+                    std::filesystem::path(argv[0]).filename().string());
+        std::exit(EXIT_FAILURE);
+    }
+
+    if (show_help)
+    {
+        std::cout << clipp::make_man_page(
+                         cli,
+                         std::filesystem::path(argv[0]).filename().string())
+                  << '\n';
+        std::exit(EXIT_SUCCESS);
+    }
+
+    for (const auto size : params.layer_sizes)
+    {
+        if (size <= 0)
+        {
+            std::cerr << "Error on layer size of " << size
+                      << ": must be strictly positive\n";
+            std::exit(EXIT_FAILURE);
+        }
+    }
+    if (params.layer_sizes.front() % 2 != 0)
+    {
+        std::cerr << "Error on network input size of "
+                  << params.layer_sizes.front() << ": must be divisible by 2\n";
+        std::exit(EXIT_FAILURE);
+    }
+    if (params.num_epochs < 0)
+    {
+        std::cerr << "Error on number of epochs of " << params.num_epochs
+                  << ": must be positive\n";
+        std::exit(EXIT_FAILURE);
+    }
+    if (params.batch_size <= 0)
+    {
+        std::cerr << "Error on mini-batch size of " << params.batch_size
+                  << ": must be strictly positive\n";
+        std::exit(EXIT_FAILURE);
+    }
+    if (params.output_width < 0)
+    {
+        std::cerr << "Error on output width of " << params.output_width
+                  << ": must be positive\n";
+        std::exit(EXIT_FAILURE);
+    }
+    if (params.output_height < 0)
+    {
+        std::cerr << "Error on output height of " << params.output_height
+                  << ": must be positive\n";
+        std::exit(EXIT_FAILURE);
+    }
+
+    return params;
+}
+
 } // namespace
 
 int main(int argc, char *argv[])
 {
     try
     {
-        bool show_help {false};
-        std::string input_file_name;
-        std::string output_file_name {"out.png"};
-        std::vector<int> layer_sizes;
-        bool force_gray {false};
-        unsigned int num_epochs {1};
-        float learning_rate {0.002f};
-        int output_width {};
-        int output_height {};
-        std::vector<std::string> unmatched;
+        auto params = parse_command_line(argc, argv);
 
-        const auto cli =
-            (clipp::option("-h", "--help")
-                 .set(show_help)
-                 .doc("Show this message and exit") |
-             ((clipp::required("-i", "--input") &
-               clipp::value(
-                   clipp::match::prefix_not("-"), "input", input_file_name))
-                  .doc("The input image (JPEG, PNG, TGA, BMP, PSD, GIF, HDR, "
-                       "PIC, PNM)"),
-              (clipp::required("-o", "--output") &
-               clipp::value(
-                   clipp::match::prefix_not("-"), "output", output_file_name))
-                  .doc("The output image (PNG)"),
-              (clipp::option("-W", "--width") &
-               clipp::value(
-                   clipp::match::positive_integers(), "width", output_width))
-                  .doc("The width of the output image"),
-              (clipp::option("-H", "--height") &
-               clipp::value(
-                   clipp::match::positive_integers(), "height", output_height))
-                  .doc("The height of the output image"),
-              (clipp::option("-a", "--arch") &
-               clipp::values(clipp::match::positive_integers(),
-                             "layer_sizes",
-                             layer_sizes))
-                  .doc("Sizes of the network layers (includes the input "
-                       "size but excludes the output size)"),
-              clipp::option("-g", "--gray")
-                  .set(force_gray)
-                  .doc("Force grayscale for the output image (by default, the "
-                       "output will be either RGB or grayscale depending on "
-                       "the input)"),
-              (clipp::option("-e", "--epochs") &
-               clipp::value(
-                   clipp::match::positive_integers(), "epochs", num_epochs))
-                  .doc("Number of training epochs"),
-              (clipp::option("-l", "--learning_rate") &
-               clipp::value(
-                   clipp::match::numbers(), "learning_rate", learning_rate))
-                  .doc("Learning rate"),
-              clipp::any_other(unmatched)));
-
-        assert(cli.flags_are_prefix_free());
-        assert(cli.common_flag_prefix() == "-");
-
-        const auto result = clipp::parse(argc, argv, cli);
-
-        if (result.any_error() || !unmatched.empty())
-        {
-            print_error(result,
-                        unmatched,
-                        cli,
-                        std::filesystem::path(argv[0]).filename().string());
-            return EXIT_FAILURE;
-        }
-
-        if (show_help)
-        {
-            std::cout << clipp::make_man_page(
-                             cli,
-                             std::filesystem::path(argv[0]).filename().string())
-                      << '\n';
-            return EXIT_SUCCESS;
-        }
-
-        if (layer_sizes.empty())
-        {
-            layer_sizes.assign({128, 64, 64});
-        }
-
-        std::cout << "Input: \"" << input_file_name << "\"\n"
-                  << "Output: \"" << output_file_name << "\"\n"
+        std::cout << "Input: " << std::quoted(params.input_file_name) << '\n'
+                  << "Output: " << std::quoted(params.output_file_name) << '\n'
                   << "Network layout:";
-        for (const auto size : layer_sizes)
+        for (const auto size : params.layer_sizes)
         {
             std::cout << ' ' << size;
         }
         std::cout << '\n'
-                  << "Epochs: " << num_epochs << '\n'
-                  << "Learning rate: " << learning_rate << '\n';
+                  << "Epochs: " << params.num_epochs << '\n'
+                  << "Mini-batch size: " << params.batch_size << '\n'
+                  << "Learning rate: " << params.learning_rate << '\n';
 
-        const auto dataset = load_dataset(
-            input_file_name.c_str(), layer_sizes.front(), force_gray);
+        const auto dataset = load_dataset(params.input_file_name.c_str(),
+                                          params.layer_sizes.front(),
+                                          params.force_gray);
+        params.layer_sizes.push_back(dataset.channels);
 
-        layer_sizes.push_back(dataset.channels);
-
-        if (output_width > 0 && output_height == 0)
+        if (params.output_width > 0 && params.output_height <= 0)
         {
             const auto aspect_ratio = static_cast<float>(dataset.width) /
                                       static_cast<float>(dataset.height);
-            output_height = static_cast<int>(static_cast<float>(output_width) /
-                                             aspect_ratio);
+            params.output_height = static_cast<int>(
+                static_cast<float>(params.output_width) / aspect_ratio);
+            params.output_height = std::max(params.output_height, 1);
         }
-        else if (output_width == 0 && output_height > 0)
+        else if (params.output_width <= 0 && params.output_height > 0)
         {
             const auto aspect_ratio = static_cast<float>(dataset.width) /
                                       static_cast<float>(dataset.height);
-            output_width = static_cast<int>(static_cast<float>(output_height) *
-                                            aspect_ratio);
+            params.output_width = static_cast<int>(
+                static_cast<float>(params.output_height) * aspect_ratio);
+            params.output_width = std::max(params.output_width, 1);
         }
-        else if (output_width == 0 && output_height == 0)
+        else if (params.output_width <= 0 && params.output_height <= 0)
         {
-            output_width = dataset.width;
-            output_height = dataset.height;
+            params.output_width = dataset.width;
+            params.output_height = dataset.height;
         }
 
-        std::cout << "Output size is " << output_width << " x " << output_height
-                  << " pixels\n";
-
-        std::cout << std::string(72, '-') << '\n';
+        std::cout << "Channels: " << dataset.channels
+                  << (dataset.channels < 3 ? " (grayscale)\n" : " (RGB)\n");
+        std::cout << "Input is " << dataset.width << " x " << dataset.height
+                  << " pixels\n"
+                  << "Output is " << params.output_width << " x "
+                  << params.output_height << " pixels\n"
+                  << std::string(72, '-') << '\n';
 
         std::random_device rd;
         std::minstd_rand rng(rd());
@@ -386,12 +457,15 @@ int main(int argc, char *argv[])
             static_cast<std::size_t>(dataset.inputs.cols()));
         std::iota(indices.begin(), indices.end(), 0);
 
-        auto layers = network_init(layer_sizes);
+        std::cout.flush();
+        std::cerr << "TODO: mini-batch with size " << params.batch_size
+                  << " not implemented" << std::endl;
+        auto layers = network_init(params.layer_sizes);
 
-        Eigen::VectorXf input(layer_sizes.front());
-        Eigen::VectorXf output(layer_sizes.back());
+        Eigen::VectorXf input(params.layer_sizes.front());
+        Eigen::VectorXf output(params.layer_sizes.back());
 
-        for (unsigned int epoch {0}; epoch < num_epochs; ++epoch)
+        for (int epoch {0}; epoch < params.num_epochs; ++epoch)
         {
             std::cout << "Training epoch " << epoch << '\n';
 
@@ -400,16 +474,14 @@ int main(int argc, char *argv[])
             {
                 input << dataset.inputs.col(index);
                 output << dataset.outputs.col(index);
-                training_pass(layers, input, output, learning_rate);
+                training_pass(layers, input, output, params.learning_rate);
             }
         }
 
-        std::cout << "Saving " << output_width << " x " << output_height
-                  << " output to " << std::quoted(output_file_name) << '\n';
-        store_image(output_file_name.c_str(),
+        store_image(params.output_file_name.c_str(),
                     layers,
-                    output_width,
-                    output_height,
+                    params.output_width,
+                    params.output_height,
                     dataset.width,
                     dataset.height);
 

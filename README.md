@@ -3,8 +3,9 @@
 A neural network learning the mapping between pixel coordinates and pixel color
 of an image.
 
-The 2D input coordinates $`\left[x, y\right]^T = \mathbf{v} \in \left[0, 1\right]^2`$ are not used
-directly, but converted to a set of Fourier features with the mapping
+The 2D input
+coordinates $`\left[x, y\right]^T = \mathbf{v} \in \left[0, 1\right]^2`$ are not
+used directly, but converted to a set of Fourier features with the mapping
 $`\gamma(\mathbf{v}) = \left[\cos(2\pi\mathbf{F}\mathbf{v})^T, \sin(2\pi\mathbf{F}\mathbf{v})^T\right]^T`$
 , where $`\mathbf{F} \in \mathbb{R}^{n\times2}`$.
 Each row $`\left[f_x, f_y\right]`$ of $`\mathbf{F}`$ is a random spatial
@@ -28,7 +29,6 @@ learning rate of 0.002.
 # TODO
 
 - Mini-batch gradient descent
-- Allow to train without Fourier features if the given input size is 2
 
 ## Build
 
