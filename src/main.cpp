@@ -55,11 +55,37 @@ struct Dataset
     return static_cast<std::uint8_t>(std::clamp(f, 0.0f, 1.0f) * 255.0f);
 }
 
-void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
-                                              Eigen::Index max_image_dimension,
-                                              float x,
-                                              float y)
+[[nodiscard]] Eigen::MatrixX2f generate_gaussian_frequencies(Eigen::Index size,
+                                                             int image_width,
+                                                             int image_height)
 {
+    assert(size % 2 == 0);
+
+    std::random_device rd;
+    std::minstd_rand rng(rd());
+
+    const auto std_dev_x = static_cast<float>(image_width) * 0.02f;
+    const auto std_dev_y = static_cast<float>(image_height) * 0.02f;
+    std::normal_distribution<float> distribution_x(0.0f, std_dev_x);
+    std::normal_distribution<float> distribution_y(0.0f, std_dev_y);
+
+    Eigen::MatrixX2f frequencies(size / 2, 2);
+    frequencies.col(0) = Eigen::VectorXf::NullaryExpr(
+        size / 2, [&] { return distribution_x(rng); });
+    frequencies.col(1) = Eigen::VectorXf::NullaryExpr(
+        size / 2, [&] { return distribution_y(rng); });
+
+    return frequencies;
+}
+
+void get_fourier_features(Eigen::VectorXf &result,
+                          int image_width,
+                          int image_height,
+                          float x,
+                          float y)
+{
+#if 0
+
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
     const auto max_frequency = static_cast<float>(max_image_dimension) * 0.5f;
     const Eigen::Index m {result.size() / 4};
@@ -72,6 +98,20 @@ void get_fourier_features_positional_encoding(Eigen::VectorXf &result,
         result(4 * j + 2) = std::sin(two_pi * frequency * x);
         result(4 * j + 3) = std::sin(two_pi * frequency * y);
     }
+
+#else
+
+    constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
+
+    // FIXME: call this outside of the function to remove the need for a static
+    // variable
+    static const auto frequencies =
+        generate_gaussian_frequencies(result.size(), image_width, image_height);
+
+    result << (two_pi * frequencies * Eigen::Vector2f {x, y}).array().cos(),
+        (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
+
+#endif
 }
 
 [[nodiscard]] Dataset
@@ -116,15 +156,6 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
     dataset.inputs.setZero(input_size, width * height);
     dataset.outputs.setZero(desired_channels, width * height);
 
-    std::random_device rd {};
-    std::minstd_rand rng(rd());
-    constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
-    const auto std_dev = static_cast<float>(std::max(width, height)) * 0.01f;
-    std::normal_distribution<float> distribution(0.0f, std_dev);
-    const auto generate_weight = [&](float) { return distribution(rng); };
-    Eigen::MatrixX2f frequencies(input_size / 2, 2);
-    frequencies = frequencies.unaryExpr(generate_weight);
-
     Eigen::VectorXf input(input_size);
     Eigen::VectorXf output(desired_channels);
 
@@ -137,15 +168,9 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
                 static_cast<float>(j) / static_cast<float>(width - 1);
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
-#if 1
-            get_fourier_features_positional_encoding(
-                input, std::max(width, height), x, y);
-#else
-            input << (two_pi * frequencies * Eigen::Vector2f {x, y})
-                         .array()
-                         .cos(),
-                (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
-#endif
+
+            get_fourier_features(input, width, height, x, y);
+
             for (int channel {0}; channel < desired_channels; ++channel)
             {
                 output(channel) = u8_to_float(image[static_cast<std::size_t>(
@@ -183,8 +208,7 @@ void store_image(const char *file_name,
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
 
-            get_fourier_features_positional_encoding(
-                input, std::max(input_width, input_height), x, y);
+            get_fourier_features(input, input_width, input_height, x, y);
 
             forward_pass(layers, input);
 
@@ -260,7 +284,7 @@ int main(int argc, char *argv[])
         std::vector<int> layer_sizes;
         bool force_gray {false};
         unsigned int num_epochs {1};
-        float learning_rate {0.01f};
+        float learning_rate {0.002f};
         int output_width {};
         int output_height {};
         std::vector<std::string> unmatched;

@@ -18,8 +18,6 @@ learning rate of 0.01.
 
 ## TODO
 
-- Support multiple input images and create animated transitions
-- Selectable output dimensions
 - Clean up the Fourier features code
 
 ## Build
@@ -68,12 +66,6 @@ OPTIONS
 
         -l, --learning_rate <learning_rate>
                     Learning rate
-```
-
-## Convert images to video
-
-```
-ffmpeg -framerate 2 -i %05d.png -c:v libx264 -r 30 -pix_fmt yuv420p output.mp4
 ```
 
 ## External libraries
