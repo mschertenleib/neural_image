@@ -47,8 +47,8 @@ cmake --build build --target neural_image
 ```
 SYNOPSIS
         neural_image.exe -h
-        neural_image.exe -i <input> -o <output> [-W <width>] [-H <height>] [-a <layer_sizes>...]
-                         [-g] [-e <epochs>] [-l <learning_rate>]
+        neural_image.exe -i <input> -o <output> -a <layer_sizes>... [-W <width>] [-H <height>] [-g]
+                         [-e <epochs>] [-b <batch_size>] [-l <learning_rate>]
 
 OPTIONS
         -h, --help  Show this message and exit
@@ -58,24 +58,27 @@ OPTIONS
         -o, --output <output>
                     The output image (PNG)
 
-        -W, --width <width>
-                    The width of the output image
-
-        -H, --height <height>
-                    The height of the output image
-
         -a, --arch <layer_sizes>
                     Sizes of the network layers (includes the input size but excludes the output
                     size)
 
-        -g, --gray  Force grayscale for the output image (by default, the output will be either RGB
-                    or grayscale depending on the input)
+        -W, --width <width>
+                    The width of the output image (by default, the same as the input image)
+
+        -H, --height <height>
+                    The height of the output image (by default, the same as the input image)
+
+        -g, --gray  Force grayscale (by default, the output will be either RGB or grayscale
+                    depending on the input)
 
         -e, --epochs <epochs>
-                    Number of training epochs
+                    Number of training epochs (default: 1)
 
-        -l, --learning_rate <learning_rate>
-                    Learning rate
+        -b, --batch-size <batch_size>
+                    Mini-batch size (default: 16)
+
+        -l, --learning-rate <learning_rate>
+                    Learning rate (default: 0.002000)
 ```
 
 ## External libraries
