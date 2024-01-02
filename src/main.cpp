@@ -84,23 +84,6 @@ void get_fourier_features(Eigen::VectorXf &result,
                           float x,
                           float y)
 {
-#if 0
-
-    constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
-    const auto max_frequency = static_cast<float>(max_image_dimension) * 0.5f;
-    const Eigen::Index m {result.size() / 4};
-    for (Eigen::Index j {0}; j < m; ++j)
-    {
-        const auto frequency = std::pow(
-            max_frequency, static_cast<float>(j) / static_cast<float>(m - 1));
-        result(4 * j + 0) = std::cos(two_pi * frequency * x);
-        result(4 * j + 1) = std::cos(two_pi * frequency * y);
-        result(4 * j + 2) = std::sin(two_pi * frequency * x);
-        result(4 * j + 3) = std::sin(two_pi * frequency * y);
-    }
-
-#else
-
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
 
     // FIXME: call this outside of the function to remove the need for a static
@@ -110,8 +93,6 @@ void get_fourier_features(Eigen::VectorXf &result,
 
     result << (two_pi * frequencies * Eigen::Vector2f {x, y}).array().cos(),
         (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
-
-#endif
 }
 
 [[nodiscard]] Dataset
@@ -202,7 +183,6 @@ void store_image(const char *file_name,
     {
         for (int j {0}; j < width; ++j)
         {
-            // FIXME: x and y should be in the range [-1, 1]
             const auto x =
                 static_cast<float>(j) / static_cast<float>(width - 1);
             const auto y =

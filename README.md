@@ -1,24 +1,35 @@
 # neural_image
 
 A neural network learning the mapping between pixel coordinates and pixel color
-of an image. In practice, the 2D input is not used directly, but converted to a
-set of sines and cosines of different frequencies (Fourier features), allowing
-the network to learn high-frequency details much more easily.
+of an image.
+
+The 2D input coordinates $`\left[x, y\right]^T = \mathbf{v}`$ are not used
+directly, but converted to a set of Fourier features with the mapping
+$`\gamma(\mathbf{v}) = \left[\cos(2\pi\mathbf{F}\mathbf{v})^T, \sin(2\pi\mathbf{F}\mathbf{v})^T\right]^T`$
+, where $`\mathbf{F} \in \mathbb{R}^{n\times2}`$.
+Each row $`\left[f_x, f_y\right]`$ of $`\mathbf{F}`$ is a random spatial
+frequency sampled from a Gaussian distribution with mean 0 and a
+covariance $`\begin{bmatrix} \sigma_x^2 & 0\\0 & \sigma_y^2 \end{bmatrix}`$
+depending on the dimensions of the image.
+
+This mapping dramatically improves the network's ability to learn high-frequency
+details.
 
 ## Example
 
-The output image was obtained using 256 input Fourier features, 4 leaky ReLU
-hidden layers of sizes {512, 512, 128, 128}, and a sigmoid 3-channel output
+The output image was obtained using 256 Gaussian input Fourier features, 3 leaky
+ReLU hidden layers of sizes {256, 256, 256}, and a sigmoid 3-channel output
 layer.
 The network was trained using stochastic gradient descent for 100 epochs with a
-learning rate of 0.01.
+learning rate of 0.002.
 
 ![Input](images/input.png)
 ![Output](images/output.png)
 
-## TODO
+# TODO
 
-- Clean up the Fourier features code
+- Mini-batch gradient descent
+- Allow to train without Fourier features if the given input size is 2
 
 ## Build
 
