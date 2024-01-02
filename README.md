@@ -8,9 +8,8 @@ directly, but converted to a set of Fourier features with the mapping
 $`\gamma(\mathbf{v}) = \left[\cos(2\pi\mathbf{F}\mathbf{v})^T, \sin(2\pi\mathbf{F}\mathbf{v})^T\right]^T`$
 , where $`\mathbf{F} \in \mathbb{R}^{n\times2}`$.
 Each row $`\left[f_x, f_y\right]`$ of $`\mathbf{F}`$ is a random spatial
-frequency sampled from a Gaussian distribution with mean 0 and a
-covariance $`\begin{bmatrix} \sigma_x^2 & 0\\0 & \sigma_y^2 \end{bmatrix}`$
-depending on the dimensions of the image.
+frequency sampled from a Gaussian distribution with mean 0 and a diagonal
+covariance matrix depending on the dimensions of the image.
 
 This mapping dramatically improves the network's ability to learn high-frequency
 details.
