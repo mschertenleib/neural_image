@@ -54,6 +54,7 @@ struct Dataset
 {
     Eigen::MatrixXf inputs;
     Eigen::MatrixXf outputs;
+    Eigen::MatrixX2f frequencies;
     int width;
     int height;
     int channels;
@@ -69,17 +70,14 @@ struct Dataset
     return static_cast<std::uint8_t>(std::clamp(f, 0.0f, 1.0f) * 255.0f);
 }
 
-[[nodiscard]] Eigen::MatrixX2f generate_gaussian_frequencies(Eigen::Index size,
-                                                             int image_width,
-                                                             int image_height)
+[[nodiscard]] Eigen::MatrixX2f generate_gaussian_frequencies(
+    Eigen::Index size, int image_width, int image_height, std::minstd_rand &rng)
 {
     assert(size % 2 == 0);
 
-    std::random_device rd;
-    std::minstd_rand rng(rd());
-
-    const auto std_dev_x = static_cast<float>(image_width) * 0.02f;
-    const auto std_dev_y = static_cast<float>(image_height) * 0.02f;
+    constexpr float std_dev_scale {0.02f};
+    const auto std_dev_x = static_cast<float>(image_width) * std_dev_scale;
+    const auto std_dev_y = static_cast<float>(image_height) * std_dev_scale;
     std::normal_distribution<float> distribution_x(0.0f, std_dev_x);
     std::normal_distribution<float> distribution_y(0.0f, std_dev_y);
 
@@ -93,24 +91,19 @@ struct Dataset
 }
 
 void get_fourier_features(Eigen::VectorXf &result,
-                          int image_width,
-                          int image_height,
+                          const Eigen::MatrixX2f &frequencies,
                           float x,
                           float y)
 {
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
-
-    // FIXME: call this outside of the function to remove the need for a static
-    // variable
-    static const auto frequencies =
-        generate_gaussian_frequencies(result.size(), image_width, image_height);
-
     result << (two_pi * frequencies * Eigen::Vector2f {x, y}).array().cos(),
         (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
 }
 
-[[nodiscard]] Dataset
-load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
+[[nodiscard]] Dataset load_dataset(const char *file_name,
+                                   Eigen::Index input_size,
+                                   bool force_gray,
+                                   std::minstd_rand &rng)
 {
     int width {};
     int height {};
@@ -142,6 +135,8 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
 
     Dataset dataset {.inputs = {},
                      .outputs = {},
+                     .frequencies = generate_gaussian_frequencies(
+                         input_size, width, height, rng),
                      .width = width,
                      .height = height,
                      .channels = desired_channels};
@@ -161,7 +156,7 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
 
-            get_fourier_features(input, width, height, x, y);
+            get_fourier_features(input, dataset.frequencies, x, y);
 
             for (int channel {0}; channel < desired_channels; ++channel)
             {
@@ -178,10 +173,9 @@ load_dataset(const char *file_name, Eigen::Index input_size, bool force_gray)
 
 void store_image(const char *file_name,
                  std::vector<Layer> &layers,
+                 const Eigen::MatrixX2f &frequencies,
                  int width,
-                 int height,
-                 int input_width,
-                 int input_height)
+                 int height)
 {
     std::cout << "Creating " << width << " x " << height << " output\n";
 
@@ -201,7 +195,7 @@ void store_image(const char *file_name,
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
 
-            get_fourier_features(input, input_width, input_height, x, y);
+            get_fourier_features(input, frequencies, x, y);
 
             forward_pass(layers, input);
 
@@ -303,13 +297,17 @@ void print_error(const clipp::parsing_result &result,
                    "size but excludes the output size)"),
           (clipp::option("-W", "--width") &
            clipp::value(clipp::match::integers(), "width", params.output_width))
-              .doc("The width of the output image (by default, the same as "
-                   "the input image)"),
+              .doc("The width of the output image (if neither width nor "
+                   "height are specified, defaults to the dimension of the "
+                   "input image. If only one of width or height is specified, "
+                   "keeps the same aspect ratio as the input image)"),
           (clipp::option("-H", "--height") &
            clipp::value(
                clipp::match::integers(), "height", params.output_height))
-              .doc("The height of the output image (by default, the same "
-                   "as the input image)"),
+              .doc("The height of the output image (if neither width nor "
+                   "height are specified, defaults to the dimension of the "
+                   "input image. If only one of width or height is specified, "
+                   "keeps the same aspect ratio as the input image)"),
           clipp::option("-g", "--gray")
               .set(params.force_gray)
               .doc("Force grayscale (by default, the output will be either "
@@ -416,9 +414,13 @@ int main(int argc, char *argv[])
                   << "Mini-batch size: " << params.batch_size << '\n'
                   << "Learning rate: " << params.learning_rate << '\n';
 
+        std::random_device rd;
+        std::minstd_rand rng(rd());
+
         const auto dataset = load_dataset(params.input_file_name.c_str(),
                                           params.layer_sizes.front(),
-                                          params.force_gray);
+                                          params.force_gray,
+                                          rng);
         params.layer_sizes.push_back(dataset.channels);
 
         if (params.output_width > 0 && params.output_height <= 0)
@@ -451,8 +453,6 @@ int main(int argc, char *argv[])
                   << params.output_height << " pixels\n"
                   << std::string(72, '-') << '\n';
 
-        std::random_device rd;
-        std::minstd_rand rng(rd());
         std::vector<int> indices(
             static_cast<std::size_t>(dataset.inputs.cols()));
         std::iota(indices.begin(), indices.end(), 0);
@@ -480,10 +480,9 @@ int main(int argc, char *argv[])
 
         store_image(params.output_file_name.c_str(),
                     layers,
+                    dataset.frequencies,
                     params.output_width,
-                    params.output_height,
-                    dataset.width,
-                    dataset.height);
+                    params.output_height);
 
         return EXIT_SUCCESS;
     }
