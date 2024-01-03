@@ -197,42 +197,54 @@ void store_image(const char *file_name,
     std::cout << "Creating " << width << " x " << height << " output\n";
 
     const auto input_size = layers.front().weights.cols();
-    // FIXME
-    const auto batch_size = 1; // layers.front().activations.cols();
-    Eigen::MatrixXf input(input_size, batch_size);
-    Eigen::Matrix2Xf coords(2, batch_size);
+    const auto network_batch_size = layers.front().activations.cols();
+    Eigen::MatrixXf input(input_size, network_batch_size);
+    Eigen::Matrix2Xf coords(2, network_batch_size);
 
-    const auto channels = static_cast<int>(layers.back().activations.size());
+    const auto channels = static_cast<int>(layers.back().activations.rows());
     std::vector<std::uint8_t> pixel_data(static_cast<std::size_t>(width) *
                                          static_cast<std::size_t>(height) *
                                          static_cast<std::size_t>(channels));
 
 #ifndef NDEBUG
-    Eigen::internal::set_is_malloc_allowed(false);
+    // Eigen::internal::set_is_malloc_allowed(false);
 #endif
 
-    for (int i {0}; i < height; ++i)
+    const auto num_pixels = width * height;
+    for (int batch_base {0}; batch_base < num_pixels;
+         batch_base += static_cast<int>(network_batch_size))
     {
-        for (int j {0}; j < width; ++j)
+        const auto remaining_pixels = num_pixels - batch_base;
+        const auto batch_size =
+            std::min(static_cast<int>(network_batch_size), remaining_pixels);
+
+        for (int batch_element {0}; batch_element < batch_size; ++batch_element)
         {
+            const auto pixel_index = batch_base + batch_element;
+            const auto i = pixel_index / width;
+            const auto j = pixel_index % width;
             const auto x =
                 static_cast<float>(j) / static_cast<float>(width - 1);
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
+            coords(0, batch_element) = x;
+            coords(1, batch_element) = y;
+        }
 
-            coords << x, y;
-            get_fourier_features(input, frequencies, coords);
+        get_fourier_features(input, frequencies, coords);
 
-            forward_pass(layers, input);
+        forward_pass(layers, input);
 
-            const auto pixel_index = i * width + j;
-            const auto &output = layers.back().activations.col(0);
+        for (int batch_element {0}; batch_element < batch_size; ++batch_element)
+        {
+            const auto pixel_index = batch_base + batch_element;
             for (int channel {0}; channel < channels; ++channel)
             {
-                const auto index = static_cast<std::size_t>(pixel_index) *
-                                       static_cast<std::size_t>(channels) +
-                                   static_cast<std::size_t>(channel);
-                pixel_data[index] = float_to_u8(output(channel));
+                const auto byte_index = static_cast<std::size_t>(pixel_index) *
+                                            static_cast<std::size_t>(channels) +
+                                        static_cast<std::size_t>(channel);
+                pixel_data[byte_index] = float_to_u8(
+                    layers.back().activations(channel, batch_element));
             }
         }
     }
@@ -381,6 +393,12 @@ void print_error(const clipp::parsing_result &result,
         std::exit(EXIT_SUCCESS);
     }
 
+    if (params.layer_sizes.size() < 2)
+    {
+        std::cerr << "Error: layer sizes must contain at least 2 elements (at "
+                     "least one hidden layer is required)\n";
+        std::exit(EXIT_FAILURE);
+    }
     for (const auto size : params.layer_sizes)
     {
         if (size <= 0)
@@ -433,24 +451,10 @@ int main(int argc, char *argv[])
         auto params = parse_command_line(argc, argv);
 
         std::cout << "Input: " << std::quoted(params.input_file_name) << '\n'
-                  << "Output: " << std::quoted(params.output_file_name) << '\n'
-                  << "Network layout:";
-        for (const auto size : params.layer_sizes)
-        {
-            std::cout << ' ' << size;
-        }
-        std::cout << '\n'
-                  << "Epochs: " << params.num_epochs << '\n'
-                  << "Mini-batch size: " << params.batch_size << '\n'
-                  << "Learning rate: " << params.learning_rate << '\n';
+                  << "Output: " << std::quoted(params.output_file_name) << '\n';
 
         std::random_device rd;
         std::minstd_rand rng(rd());
-
-        std::cout.flush();
-        std::cerr << "TODO: mini-batch with size " << params.batch_size
-                  << " not implemented" << std::endl;
-        params.batch_size = 1;
 
         const auto dataset = load_dataset(params.input_file_name.c_str(),
                                           params.layer_sizes.front(),
@@ -480,16 +484,30 @@ int main(int argc, char *argv[])
             params.output_height = dataset.height;
         }
 
-        std::cout << "Channels: " << dataset.channels
-                  << (dataset.channels < 3 ? " (grayscale)\n" : " (RGB)\n");
-        std::cout << "Input is " << dataset.width << " x " << dataset.height
-                  << " pixels\n"
-                  << "Output is " << params.output_width << " x "
-                  << params.output_height << " pixels\n"
+        const auto num_pixels = dataset.width * dataset.height;
+        const auto updates_per_epoch =
+            (num_pixels + params.batch_size - 1) / params.batch_size;
+        const auto total_updates = updates_per_epoch * params.num_epochs;
+
+        std::cout << "Network layout:";
+        for (std::size_t i {0}; i < params.layer_sizes.size() - 1; ++i)
+        {
+            std::cout << ' ' << params.layer_sizes[i];
+        }
+        std::cout << '\n'
+                  << "Channels: " << dataset.channels
+                  << (dataset.channels < 3 ? " (grayscale)\n" : " (RGB)\n")
+                  << "Input size: " << dataset.width << " x " << dataset.height
+                  << " (" << num_pixels << " pixels)\n"
+                  << "Epochs: " << params.num_epochs << '\n'
+                  << "Mini-batch size: " << params.batch_size << '\n'
+                  << "Weight updates: " << total_updates << '\n'
+                  << "Learning rate: " << params.learning_rate << '\n'
+                  << "Output size: " << params.output_width << " x "
+                  << params.output_height << '\n'
                   << std::string(72, '-') << '\n';
 
-        std::vector<int> indices(
-            static_cast<std::size_t>(dataset.inputs.cols()));
+        Eigen::ArrayXi indices(dataset.inputs.cols());
         std::iota(indices.begin(), indices.end(), 0);
 
         auto layers = network_init(params.layer_sizes, params.batch_size, rng);
@@ -506,15 +524,21 @@ int main(int argc, char *argv[])
             std::cout << "Training epoch " << epoch << '\n';
 
             std::shuffle(indices.begin(), indices.end(), rng);
-            for (const auto index : indices)
+
+            for (int batch_base {0}; batch_base < num_pixels;
+                 batch_base += static_cast<int>(params.batch_size))
             {
-                input << dataset.inputs.col(index);
-                output << dataset.outputs.col(index);
-                training_pass(layers,
-                              input,
-                              output,
-                              params.batch_size,
-                              params.learning_rate);
+                const auto remaining_pixels = num_pixels - batch_base;
+                const auto batch_size = std::min(
+                    static_cast<int>(params.batch_size), remaining_pixels);
+
+                input.leftCols(batch_size) = dataset.inputs(
+                    Eigen::all, indices(Eigen::seqN(batch_base, batch_size)));
+                output.leftCols(batch_size) = dataset.outputs(
+                    Eigen::all, indices(Eigen::seqN(batch_base, batch_size)));
+
+                training_pass(
+                    layers, input, output, batch_size, params.learning_rate);
             }
         }
 

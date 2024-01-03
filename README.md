@@ -26,10 +26,6 @@ learning rate of 0.002.
 ![Input](images/input.png)
 ![Output](images/output.png)
 
-# TODO
-
-- Mini-batch gradient descent
-
 ## Build
 
 All dependencies are handled
