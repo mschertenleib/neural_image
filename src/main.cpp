@@ -90,18 +90,22 @@ struct Dataset
     return frequencies;
 }
 
-void get_fourier_features(Eigen::VectorXf &result,
+void get_fourier_features(Eigen::MatrixXf &result,
                           const Eigen::MatrixX2f &frequencies,
-                          float x,
-                          float y)
+                          const Eigen::Matrix2Xf &coords)
 {
     constexpr auto two_pi = 2.0f * std::numbers::pi_v<float>;
-    result << (two_pi * frequencies * Eigen::Vector2f {x, y}).array().cos(),
-        (two_pi * frequencies * Eigen::Vector2f {x, y}).array().sin();
+
+    result.topRows(result.rows() / 2).noalias() = frequencies * coords;
+    result.bottomRows(result.rows() / 2) = result.topRows(result.rows() / 2);
+    result.topRows(result.rows() / 2) =
+        (two_pi * result.topRows(result.rows() / 2)).array().cos();
+    result.bottomRows(result.rows() / 2) =
+        (two_pi * result.bottomRows(result.rows() / 2)).array().sin();
 }
 
 [[nodiscard]] Dataset load_dataset(const char *file_name,
-                                   Eigen::Index input_size,
+                                   int input_size,
                                    bool force_gray,
                                    std::minstd_rand &rng)
 {
@@ -143,12 +147,17 @@ void get_fourier_features(Eigen::VectorXf &result,
     dataset.inputs.setZero(input_size, width * height);
     dataset.outputs.setZero(desired_channels, width * height);
 
-    Eigen::VectorXf input(input_size);
+    Eigen::MatrixXf input(input_size, 1);
+    Eigen::Matrix2Xf coords(2, 1);
     Eigen::VectorXf output(desired_channels);
 
-    for (Eigen::Index i {0}; i < height; ++i)
+#ifndef NDEBUG
+    Eigen::internal::set_is_malloc_allowed(false);
+#endif
+
+    for (int i {0}; i < height; ++i)
     {
-        for (Eigen::Index j {0}; j < width; ++j)
+        for (int j {0}; j < width; ++j)
         {
             const auto pixel_index = i * width + j;
             const auto x =
@@ -156,17 +165,25 @@ void get_fourier_features(Eigen::VectorXf &result,
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
 
-            get_fourier_features(input, dataset.frequencies, x, y);
+            coords << x, y;
+            get_fourier_features(input, dataset.frequencies, coords);
+            dataset.inputs.col(pixel_index) = input;
 
             for (int channel {0}; channel < desired_channels; ++channel)
             {
-                output(channel) = u8_to_float(image[static_cast<std::size_t>(
-                    pixel_index * desired_channels + channel)]);
+                const auto index =
+                    static_cast<std::size_t>(pixel_index) *
+                        static_cast<std::size_t>(desired_channels) +
+                    static_cast<std::size_t>(channel);
+                dataset.outputs(channel, pixel_index) =
+                    u8_to_float(image[index]);
             }
-            dataset.inputs.col(pixel_index) = input;
-            dataset.outputs.col(pixel_index) = output;
         }
     }
+
+#ifndef NDEBUG
+    Eigen::internal::set_is_malloc_allowed(true);
+#endif
 
     return dataset;
 }
@@ -179,12 +196,20 @@ void store_image(const char *file_name,
 {
     std::cout << "Creating " << width << " x " << height << " output\n";
 
-    Eigen::VectorXf input(layers.front().weights.cols());
+    const auto input_size = layers.front().weights.cols();
+    // FIXME
+    const auto batch_size = 1; // layers.front().activations.cols();
+    Eigen::MatrixXf input(input_size, batch_size);
+    Eigen::Matrix2Xf coords(2, batch_size);
 
     const auto channels = static_cast<int>(layers.back().activations.size());
     std::vector<std::uint8_t> pixel_data(static_cast<std::size_t>(width) *
                                          static_cast<std::size_t>(height) *
                                          static_cast<std::size_t>(channels));
+
+#ifndef NDEBUG
+    Eigen::internal::set_is_malloc_allowed(false);
+#endif
 
     for (int i {0}; i < height; ++i)
     {
@@ -195,21 +220,26 @@ void store_image(const char *file_name,
             const auto y =
                 static_cast<float>(i) / static_cast<float>(height - 1);
 
-            get_fourier_features(input, frequencies, x, y);
+            coords << x, y;
+            get_fourier_features(input, frequencies, coords);
 
             forward_pass(layers, input);
 
             const auto pixel_index = i * width + j;
-            const auto &output = layers.back().activations;
+            const auto &output = layers.back().activations.col(0);
             for (int channel {0}; channel < channels; ++channel)
             {
-                pixel_data[static_cast<std::size_t>(pixel_index) *
-                               static_cast<std::size_t>(channels) +
-                           static_cast<std::size_t>(channel)] =
-                    float_to_u8(output(channel));
+                const auto index = static_cast<std::size_t>(pixel_index) *
+                                       static_cast<std::size_t>(channels) +
+                                   static_cast<std::size_t>(channel);
+                pixel_data[index] = float_to_u8(output(channel));
             }
         }
     }
+
+#ifndef NDEBUG
+    Eigen::internal::set_is_malloc_allowed(true);
+#endif
 
     std::cout << "Saving output to " << std::quoted(file_name) << '\n';
 
@@ -417,6 +447,11 @@ int main(int argc, char *argv[])
         std::random_device rd;
         std::minstd_rand rng(rd());
 
+        std::cout.flush();
+        std::cerr << "TODO: mini-batch with size " << params.batch_size
+                  << " not implemented" << std::endl;
+        params.batch_size = 1;
+
         const auto dataset = load_dataset(params.input_file_name.c_str(),
                                           params.layer_sizes.front(),
                                           params.force_gray,
@@ -457,13 +492,14 @@ int main(int argc, char *argv[])
             static_cast<std::size_t>(dataset.inputs.cols()));
         std::iota(indices.begin(), indices.end(), 0);
 
-        std::cout.flush();
-        std::cerr << "TODO: mini-batch with size " << params.batch_size
-                  << " not implemented" << std::endl;
-        auto layers = network_init(params.layer_sizes);
+        auto layers = network_init(params.layer_sizes, params.batch_size, rng);
 
-        Eigen::VectorXf input(params.layer_sizes.front());
-        Eigen::VectorXf output(params.layer_sizes.back());
+        Eigen::MatrixXf input(params.layer_sizes.front(), params.batch_size);
+        Eigen::MatrixXf output(params.layer_sizes.back(), params.batch_size);
+
+#ifndef NDEBUG
+        Eigen::internal::set_is_malloc_allowed(false);
+#endif
 
         for (int epoch {0}; epoch < params.num_epochs; ++epoch)
         {
@@ -474,9 +510,17 @@ int main(int argc, char *argv[])
             {
                 input << dataset.inputs.col(index);
                 output << dataset.outputs.col(index);
-                training_pass(layers, input, output, params.learning_rate);
+                training_pass(layers,
+                              input,
+                              output,
+                              params.batch_size,
+                              params.learning_rate);
             }
         }
+
+#ifndef NDEBUG
+        Eigen::internal::set_is_malloc_allowed(true);
+#endif
 
         store_image(params.output_file_name.c_str(),
                     layers,

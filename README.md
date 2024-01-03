@@ -63,10 +63,14 @@ OPTIONS
                     size)
 
         -W, --width <width>
-                    The width of the output image (by default, the same as the input image)
+                    The width of the output image (if neither width nor height are specified,
+                    defaults to the dimension of the input image. If only one of width or height is
+                    specified, keeps the same aspect ratio as the input image)
 
         -H, --height <height>
-                    The height of the output image (by default, the same as the input image)
+                    The height of the output image (if neither width nor height are specified,
+                    defaults to the dimension of the input image. If only one of width or height is
+                    specified, keeps the same aspect ratio as the input image)
 
         -g, --gray  Force grayscale (by default, the output will be either RGB or grayscale
                     depending on the input)
