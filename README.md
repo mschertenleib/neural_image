@@ -91,8 +91,10 @@ OPTIONS
 
 ## Inspiration & References
 
-- https://www.youtube.com/watch?v=TkwXa7Cvfr8
-- https://www.youtube.com/watch?v=eqIMsdYPaNs
+- Emergent Garden, "Watching Neural Networks Learn",
+  https://www.youtube.com/watch?v=TkwXa7Cvfr8
+- Tsoding Daily, "Dramatically Speeding-Up My AI Learning! (I'm actually a bit scared...)",
+  https://www.youtube.com/watch?v=eqIMsdYPaNs
 - K. He, X. Zhang, S. Ren and J. Sun, "Delving Deep into Rectifiers: Surpassing
   Human-Level Performance on ImageNet Classification", 2015,
   doi: https://doi.org/10.48550/arXiv.1502.01852
